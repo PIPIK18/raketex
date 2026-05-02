@@ -1,26 +1,238 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>RAKETEX</title>
   <style>
-    html, body {
-      margin: 0;
-      background: #ffffff;
-      color: #000000;
-      font-family: Arial, sans-serif;
+    @import url("https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&display=swap");
+
+    :root {
+      --bg: #ffffff;
+      --surface: #f7f7f7;
+      --ink: #111111;
+      --line: #d5d5d5;
+      --line-strong: #111111;
+      --radius: 12px;
     }
 
-    h1 {
+    * {
+      box-sizing: border-box;
+    }
+
+    html, body {
       margin: 0;
-      padding: 16px;
-      font-size: 32px;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
+    }
+
+    .site {
+      min-height: 100vh;
+      padding: 0;
+    }
+
+    .wrap {
+      width: 100%;
+      max-width: none;
+      margin: 0;
+      border: 1px solid var(--line-strong);
+      border-radius: 0;
+      overflow: hidden;
+      background: #fff;
+    }
+
+    .topbar {
+      border-bottom: 5px solid var(--line-strong);
+      padding: 28px 24px 24px;
+      background: #fff;
+      display: flex;
+      justify-content: center;
+    }
+
+    .brand {
+      margin: 0;
+      font-size: clamp(48px, 8vw, 120px);
+      line-height: 1;
+      text-transform: uppercase;
+      letter-spacing: 5px;
+      font-weight: 900;
+      color: #000;
+      text-align: center;
+      font-family: "Orbitron", "Arial Black", "Segoe UI", sans-serif;
+      text-shadow: 0 1px 0 #fff, 0 4px 14px rgba(0, 0, 0, 0.12);
+    }
+
+    .window-nav {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0;
+      padding: 0;
+      border-bottom: 1px solid var(--line);
+      background: #fff;
+    }
+
+    .window-btn {
+      border: 1px solid #222;
+      background: #fff;
+      color: #111;
+      border-radius: 0;
+      padding: 13px 16px;
+      font-size: 15px;
       font-weight: 700;
+      text-transform: lowercase;
+      cursor: pointer;
+      transition: 0.15s ease;
+      width: 100%;
+    }
+
+    .window-btn:hover {
+      background: #f0f0f0;
+    }
+
+    .window-btn.active {
+      background: #111;
+      color: #fff;
+      border-color: #111;
+    }
+
+    .windows {
+      background: var(--surface);
+      padding: 18px;
+    }
+
+    .window {
+      display: none;
+      border: 1px solid var(--line);
+      border-radius: 0;
+      background: #fff;
+      min-height: 280px;
+      padding: 16px;
+    }
+
+    .window.active {
+      display: block;
+      animation: reveal 180ms ease;
+    }
+
+    .panel-title {
+      margin: 0 0 12px;
+      font-size: 30px;
+      text-transform: lowercase;
+      font-weight: 800;
+      line-height: 1;
+      color: #111;
+    }
+
+    .post-image {
+      width: 100%;
+      max-width: 520px;
+      display: block;
+      border-radius: 10px;
+      border: 1px solid #111;
+    }
+
+    .post-caption {
+      margin: 10px 0 0;
+      color: #222;
+      font-size: 15px;
+    }
+
+    .center-text {
+      min-height: 220px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 34px;
+      font-weight: 800;
+      text-transform: lowercase;
+      color: #111;
+    }
+
+    @keyframes reveal {
+      from {
+        opacity: 0;
+        transform: translateY(6px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @media (max-width: 640px) {
+      .site {
+        padding: 0;
+      }
+
+      .window-nav {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .window-btn {
+        min-width: 0;
+      }
+
+      .center-text {
+        font-size: 28px;
+      }
     }
   </style>
 </head>
 <body>
-  <h1>RAKETEX</h1>
+  <main class="site">
+    <section class="wrap">
+      <header class="topbar">
+        <h1 class="brand">RAKETEX</h1>
+      </header>
+
+      <nav class="window-nav" aria-label="Window navigation">
+        <button class="window-btn active" data-window="posts" type="button">posts</button>
+        <button class="window-btn" data-window="shop" type="button">shop</button>
+        <button class="window-btn" data-window="help" type="button">help</button>
+      </nav>
+
+      <section class="windows" aria-live="polite">
+        <article class="window active" id="posts">
+          <h2 class="panel-title">posts</h2>
+          <img
+            class="post-image"
+            src="assets/images/falcon-heavy.jpg"
+            alt="Falcon Heavy Demo Mission launch"
+          />
+          <p class="post-caption">Falcon Heavy Demo Mission launch image.</p>
+        </article>
+
+        <article class="window" id="shop">
+          <div class="center-text">shop</div>
+        </article>
+
+        <article class="window" id="help">
+          <div class="center-text">help</div>
+        </article>
+      </section>
+    </section>
+  </main>
+
+  <script>
+    const buttons = document.querySelectorAll(".window-btn");
+    const windows = document.querySelectorAll(".window");
+
+    function setActiveWindow(windowId) {
+      windows.forEach((windowItem) => {
+        windowItem.classList.toggle("active", windowItem.id === windowId);
+      });
+
+      buttons.forEach((button) => {
+        button.classList.toggle("active", button.dataset.window === windowId);
+      });
+    }
+
+    buttons.forEach((button) => {
+      button.addEventListener("click", () => {
+        setActiveWindow(button.dataset.window);
+      });
+    });
+  </script>
 </body>
 </html>
