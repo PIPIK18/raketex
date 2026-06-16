@@ -19,8 +19,9 @@ from werkzeug.utils import secure_filename
 
 
 BASE_DIR = Path(__file__).resolve().parent
-INSTANCE_DIR = BASE_DIR / "instance"
-UPLOAD_DIR = BASE_DIR / "uploads"
+DATA_DIR = Path(os.environ.get("RAKETEX_DATA_DIR", BASE_DIR / "instance"))
+INSTANCE_DIR = DATA_DIR
+UPLOAD_DIR = DATA_DIR / "uploads"
 DB_PATH = INSTANCE_DIR / "raketex.db"
 ALLOWED_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp"}
 
@@ -42,7 +43,7 @@ def get_db():
 
 
 def init_db():
-    UPLOAD_DIR.mkdir(exist_ok=True)
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     with get_db() as db:
         db.execute(
             """
