@@ -19,7 +19,7 @@
             <p class="blog-excerpt">{{ post.body[:260] }}{% if post.body|length > 260 %}...{% endif %}</p>
           </div>
           {% if post.image_filename %}
-            <img class="blog-thumb" src="{{ url_for('uploaded_file', filename=post.image_filename) }}" alt="" />
+            <img class="blog-thumb" src="{{ post_image_src(post.image_filename) }}" alt="" />
           {% endif %}
         </a>
       {% endfor %}

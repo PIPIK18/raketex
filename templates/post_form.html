@@ -24,7 +24,7 @@
         <img id="imagePreview" class="image-preview" alt="Selected image preview" />
       </div>
       {% if post and post.image_filename %}
-        <img class="post-image" src="{{ url_for('uploaded_file', filename=post.image_filename) }}" alt="" />
+        <img class="post-image" src="{{ post_image_src(post.image_filename) }}" alt="" />
       {% endif %}
       <label class="row" style="margin: 10px 0;">
         <input name="published" type="checkbox" {% if not post or post.published %}checked{% endif %} />

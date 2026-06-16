@@ -1,8 +1,10 @@
 import os
 import sqlite3
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
 from flask import (
     Flask,
@@ -23,6 +25,8 @@ DATA_DIR = Path(os.environ.get("RAKETEX_DATA_DIR", BASE_DIR / "instance"))
 INSTANCE_DIR = DATA_DIR
 UPLOAD_DIR = DATA_DIR / "uploads"
 DB_PATH = INSTANCE_DIR / "raketex.db"
+DATABASE_URL = os.environ.get("DATABASE_URL") or os.environ.get("POSTGRES_URL")
+BLOB_READ_WRITE_TOKEN = os.environ.get("BLOB_READ_WRITE_TOKEN")
 ALLOWED_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp"}
 
 
@@ -35,30 +39,61 @@ def now_iso():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def using_postgres():
+    return bool(DATABASE_URL)
+
+
+@contextmanager
 def get_db():
-    INSTANCE_DIR.mkdir(exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    if using_postgres():
+        import psycopg
+        from psycopg.rows import dict_row
+
+        with psycopg.connect(DATABASE_URL, row_factory=dict_row) as conn:
+            yield conn
+        return
+
+    INSTANCE_DIR.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        yield conn
 
 
 def init_db():
-    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    if not using_blob_storage():
+        UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
     with get_db() as db:
-        db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS posts (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                title TEXT NOT NULL,
-                category TEXT NOT NULL DEFAULT 'build log',
-                body TEXT NOT NULL,
-                image_filename TEXT,
-                published INTEGER NOT NULL DEFAULT 1,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
+        if using_postgres():
+            db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS posts (
+                    id BIGSERIAL PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    category TEXT NOT NULL DEFAULT 'build log',
+                    body TEXT NOT NULL,
+                    image_filename TEXT,
+                    published BOOLEAN NOT NULL DEFAULT TRUE,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
             )
-            """
-        )
+        else:
+            db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS posts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title TEXT NOT NULL,
+                    category TEXT NOT NULL DEFAULT 'build log',
+                    body TEXT NOT NULL,
+                    image_filename TEXT,
+                    published INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
 
 
 def admin_username():
@@ -87,6 +122,25 @@ def image_is_allowed(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_IMAGE_EXTENSIONS
 
 
+def using_blob_storage():
+    return bool(BLOB_READ_WRITE_TOKEN)
+
+
+def is_remote_image(image_ref):
+    if not image_ref:
+        return False
+    parsed = urlparse(image_ref)
+    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
+
+def post_image_src(image_ref):
+    if not image_ref:
+        return ""
+    if is_remote_image(image_ref):
+        return image_ref
+    return url_for("uploaded_file", filename=image_ref)
+
+
 def save_uploaded_image(file_storage):
     if not file_storage or file_storage.filename == "":
         return None
@@ -96,8 +150,152 @@ def save_uploaded_image(file_storage):
     original_name = secure_filename(file_storage.filename)
     suffix = Path(original_name).suffix.lower()
     filename = f"{uuid.uuid4().hex}{suffix}"
+
+    if using_blob_storage():
+        from vercel.blob import BlobClient
+
+        pathname = f"uploads/{filename}"
+        blob = BlobClient().put(
+            pathname,
+            file_storage.read(),
+            access="public",
+            content_type=file_storage.mimetype or None,
+            add_random_suffix=False,
+        )
+        return blob.url
+
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     file_storage.save(UPLOAD_DIR / filename)
     return filename
+
+
+def search_public_posts(search_query):
+    with get_db() as db:
+        if search_query:
+            like_query = f"%{search_query.lower()}%"
+            if using_postgres():
+                return db.execute(
+                    """
+                    SELECT * FROM posts
+                    WHERE published = TRUE
+                      AND (
+                        LOWER(title) LIKE %s
+                        OR LOWER(body) LIKE %s
+                        OR LOWER(category) LIKE %s
+                      )
+                    ORDER BY created_at DESC
+                    """,
+                    (like_query, like_query, like_query),
+                ).fetchall()
+
+            return db.execute(
+                """
+                SELECT * FROM posts
+                WHERE published = 1
+                  AND (
+                    LOWER(title) LIKE ?
+                    OR LOWER(body) LIKE ?
+                    OR LOWER(category) LIKE ?
+                  )
+                ORDER BY created_at DESC
+                """,
+                (like_query, like_query, like_query),
+            ).fetchall()
+
+        if using_postgres():
+            return db.execute(
+                """
+                SELECT * FROM posts
+                WHERE published = TRUE
+                ORDER BY created_at DESC
+                """
+            ).fetchall()
+
+        return db.execute(
+            """
+            SELECT * FROM posts
+            WHERE published = 1
+            ORDER BY created_at DESC
+            """
+        ).fetchall()
+
+
+def get_post(post_id, include_drafts=False):
+    with get_db() as db:
+        if using_postgres():
+            return db.execute(
+                """
+                SELECT * FROM posts
+                WHERE id = %s AND (published = TRUE OR %s = TRUE)
+                """,
+                (post_id, include_drafts),
+            ).fetchone()
+
+        return db.execute(
+            """
+            SELECT * FROM posts
+            WHERE id = ? AND (published = 1 OR ? = 1)
+            """,
+            (post_id, 1 if include_drafts else 0),
+        ).fetchone()
+
+
+def list_admin_posts():
+    with get_db() as db:
+        return db.execute("SELECT * FROM posts ORDER BY created_at DESC").fetchall()
+
+
+def create_post(title, category, body, image_filename, published):
+    timestamp = now_iso()
+    with get_db() as db:
+        if using_postgres():
+            db.execute(
+                """
+                INSERT INTO posts (title, category, body, image_filename, published, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """,
+                (title, category, body, image_filename, published, timestamp, timestamp),
+            )
+            return
+
+        db.execute(
+            """
+            INSERT INTO posts (title, category, body, image_filename, published, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (title, category, body, image_filename, 1 if published else 0, timestamp, timestamp),
+        )
+
+
+def update_post(post_id, title, category, body, image_filename, published):
+    with get_db() as db:
+        if using_postgres():
+            db.execute(
+                """
+                UPDATE posts
+                SET title = %s, category = %s, body = %s, image_filename = %s, published = %s, updated_at = %s
+                WHERE id = %s
+                """,
+                (title, category, body, image_filename, published, now_iso(), post_id),
+            )
+            return
+
+        db.execute(
+            """
+            UPDATE posts
+            SET title = ?, category = ?, body = ?, image_filename = ?, published = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (title, category, body, image_filename, 1 if published else 0, now_iso(), post_id),
+        )
+
+
+def delete_post_by_id(post_id):
+    with get_db() as db:
+        if using_postgres():
+            db.execute("DELETE FROM posts WHERE id = %s", (post_id,))
+            return
+        db.execute("DELETE FROM posts WHERE id = ?", (post_id,))
 
 
 @app.before_request
@@ -107,45 +305,19 @@ def ensure_database():
 
 @app.context_processor
 def inject_admin_state():
-    return {"is_admin": is_admin()}
+    return {"is_admin": is_admin(), "post_image_src": post_image_src}
 
 
 @app.route("/")
 def home():
     search_query = request.args.get("q", "").strip()
-    with get_db() as db:
-        if search_query:
-            like_query = f"%{search_query}%"
-            posts = db.execute(
-                """
-                SELECT * FROM posts
-                WHERE published = 1
-                  AND (title LIKE ? OR body LIKE ? OR category LIKE ?)
-                ORDER BY created_at DESC
-                """,
-                (like_query, like_query, like_query),
-            ).fetchall()
-        else:
-            posts = db.execute(
-                """
-                SELECT * FROM posts
-                WHERE published = 1
-                ORDER BY created_at DESC
-                """
-            ).fetchall()
+    posts = search_public_posts(search_query)
     return render_template("home.html", posts=posts, search_query=search_query)
 
 
 @app.route("/post/<int:post_id>")
 def post_detail(post_id):
-    with get_db() as db:
-        post = db.execute(
-            """
-            SELECT * FROM posts
-            WHERE id = ? AND (published = 1 OR ? = 1)
-            """,
-            (post_id, 1 if is_admin() else 0),
-        ).fetchone()
+    post = get_post(post_id, include_drafts=is_admin())
     if post is None:
         return render_template("404.html"), 404
     return render_template("post.html", post=post)
@@ -156,8 +328,7 @@ def admin():
     blocked = require_admin()
     if blocked:
         return blocked
-    with get_db() as db:
-        posts = db.execute("SELECT * FROM posts ORDER BY created_at DESC").fetchall()
+    posts = list_admin_posts()
     return render_template("admin.html", posts=posts)
 
 
@@ -197,21 +368,13 @@ def new_post():
         title = request.form.get("title", "").strip()
         body = request.form.get("body", "").strip()
         category = request.form.get("category", "build log").strip() or "build log"
-        published = 1 if request.form.get("published") == "on" else 0
+        published = request.form.get("published") == "on"
 
         if not title or not body:
             flash("Title and body are required.", "warn")
             return render_template("post_form.html", post=None)
 
-        timestamp = now_iso()
-        with get_db() as db:
-            db.execute(
-                """
-                INSERT INTO posts (title, category, body, image_filename, published, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (title, category, body, image_filename, published, timestamp, timestamp),
-            )
+        create_post(title, category, body, image_filename, published)
         flash("Post created.", "ok")
         return redirect(url_for("admin"))
     return render_template("post_form.html", post=None)
@@ -222,8 +385,7 @@ def edit_post(post_id):
     blocked = require_admin()
     if blocked:
         return blocked
-    with get_db() as db:
-        post = db.execute("SELECT * FROM posts WHERE id = ?", (post_id,)).fetchone()
+    post = get_post(post_id, include_drafts=True)
     if post is None:
         return render_template("404.html"), 404
 
@@ -238,21 +400,13 @@ def edit_post(post_id):
         title = request.form.get("title", "").strip()
         body = request.form.get("body", "").strip()
         category = request.form.get("category", "build log").strip() or "build log"
-        published = 1 if request.form.get("published") == "on" else 0
+        published = request.form.get("published") == "on"
 
         if not title or not body:
             flash("Title and body are required.", "warn")
             return render_template("post_form.html", post=post)
 
-        with get_db() as db:
-            db.execute(
-                """
-                UPDATE posts
-                SET title = ?, category = ?, body = ?, image_filename = ?, published = ?, updated_at = ?
-                WHERE id = ?
-                """,
-                (title, category, body, image_filename, published, now_iso(), post_id),
-            )
+        update_post(post_id, title, category, body, image_filename, published)
         flash("Post updated.", "ok")
         return redirect(url_for("admin"))
 
@@ -264,8 +418,7 @@ def delete_post(post_id):
     blocked = require_admin()
     if blocked:
         return blocked
-    with get_db() as db:
-        db.execute("DELETE FROM posts WHERE id = ?", (post_id,))
+    delete_post_by_id(post_id)
     flash("Post deleted.", "ok")
     return redirect(url_for("admin"))
 

@@ -1,6 +1,6 @@
 # RAKETEX
 
-RAKETEX is the Flask version of the site. There is no static `index.html` version in this repo anymore.
+RAKETEX is a Flask app. It is set up to run locally with SQLite/local uploads and on Vercel with Postgres/Vercel Blob for persistent shared posts and images.
 
 ## Local run
 
@@ -22,7 +22,7 @@ username: admin
 password: raketex123
 ```
 
-## Persistent data
+## Local persistence
 
 Posts are stored in SQLite:
 
@@ -36,10 +36,32 @@ Uploaded images are stored in:
 instance/uploads/
 ```
 
-For production hosting, use a service with persistent disk storage and set:
+## Vercel deployment
+
+1. Import this GitHub repo into Vercel.
+2. In Vercel Storage, create/connect a Marketplace Postgres database, preferably Neon.
+3. Create/connect a Vercel Blob store with public access for uploaded images.
+4. Confirm these environment variables exist in the Vercel project:
 
 ```text
-RAKETEX_DATA_DIR=/path/to/persistent/data
+DATABASE_URL or POSTGRES_URL
+BLOB_READ_WRITE_TOKEN
+RAKETEX_SECRET_KEY
+RAKETEX_ADMIN_USER
+RAKETEX_ADMIN_PASSWORD
 ```
 
-Vercel can run Flask, but its serverless filesystem is not a good place for a persistent SQLite database or uploads. Use hosting with persistent disk, or replace SQLite/uploads with a hosted database and object storage.
+`RAKETEX_SECRET_KEY` should be a long random value. `RAKETEX_ADMIN_PASSWORD` replaces the local default password.
+
+Vercel recognizes `app.py` as a Flask entrypoint, so no static `index.html` is needed.
+
+## Optional local production-like run
+
+To test with hosted storage locally, pull Vercel environment variables and run the app:
+
+```text
+vercel env pull
+python app.py
+```
+
+Without Postgres/Blob env vars, the app automatically falls back to SQLite/local uploads.

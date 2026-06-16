@@ -14,7 +14,7 @@
         {% for post in posts %}
           <article class="admin-card">
             {% if post.image_filename %}
-              <img class="post-image" src="{{ url_for('uploaded_file', filename=post.image_filename) }}" alt="" />
+              <img class="post-image" src="{{ post_image_src(post.image_filename) }}" alt="" />
             {% else %}
               <div class="post-image"></div>
             {% endif %}
