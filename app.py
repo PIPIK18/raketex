@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 from flask import (
     Flask,
     flash,
+    jsonify,
     redirect,
     render_template,
     request,
@@ -28,6 +29,7 @@ DB_PATH = INSTANCE_DIR / "raketex.db"
 DATABASE_URL = os.environ.get("DATABASE_URL") or os.environ.get("POSTGRES_URL")
 BLOB_READ_WRITE_TOKEN = os.environ.get("BLOB_READ_WRITE_TOKEN")
 ALLOWED_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp"}
+DB_INIT_DONE = False
 
 
 app = Flask(__name__)
@@ -41,6 +43,19 @@ def now_iso():
 
 def using_postgres():
     return bool(DATABASE_URL)
+
+
+def running_on_vercel():
+    return bool(os.environ.get("VERCEL"))
+
+
+def storage_config_issues():
+    issues = []
+    if running_on_vercel() and not using_postgres():
+        issues.append("Missing DATABASE_URL or POSTGRES_URL. Connect a Vercel Marketplace Postgres database.")
+    if running_on_vercel() and not using_blob_storage():
+        issues.append("Missing BLOB_READ_WRITE_TOKEN. Connect a Vercel Blob store.")
+    return issues
 
 
 @contextmanager
@@ -60,6 +75,10 @@ def get_db():
 
 
 def init_db():
+    global DB_INIT_DONE
+    if DB_INIT_DONE:
+        return
+
     if not using_blob_storage():
         UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -94,6 +113,7 @@ def init_db():
                 )
                 """
             )
+    DB_INIT_DONE = True
 
 
 def admin_username():
@@ -300,12 +320,38 @@ def delete_post_by_id(post_id):
 
 @app.before_request
 def ensure_database():
-    init_db()
+    if request.endpoint in {"healthz", "asset_file", "workspace_asset_file"}:
+        return None
+
+    issues = storage_config_issues()
+    if issues:
+        return render_template("setup_error.html", issues=issues), 503
+
+    try:
+        init_db()
+    except Exception as exc:
+        app.logger.exception("Storage initialization failed")
+        return render_template("setup_error.html", issues=["Storage initialization failed."], detail=str(exc)), 500
+    return None
 
 
 @app.context_processor
 def inject_admin_state():
     return {"is_admin": is_admin(), "post_image_src": post_image_src}
+
+
+@app.route("/healthz")
+def healthz():
+    return jsonify(
+        {
+            "ok": not storage_config_issues(),
+            "running_on_vercel": running_on_vercel(),
+            "using_postgres": using_postgres(),
+            "using_blob_storage": using_blob_storage(),
+            "database_env": "DATABASE_URL" if os.environ.get("DATABASE_URL") else "POSTGRES_URL" if os.environ.get("POSTGRES_URL") else None,
+            "issues": storage_config_issues(),
+        }
+    )
 
 
 @app.route("/")

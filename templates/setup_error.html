@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RAKETEX Setup</title>
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: #05070b;
+      color: #f5f7fa;
+      font-family: Arial, sans-serif;
+    }
+    main {
+      width: min(720px, calc(100vw - 32px));
+      border: 1px solid #273344;
+      background: #101824;
+      padding: 24px;
+    }
+    h1 { margin: 0 0 12px; }
+    li { margin: 8px 0; }
+    code {
+      background: #05070b;
+      border: 1px solid #273344;
+      padding: 2px 5px;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>RAKETEX needs production storage</h1>
+    <p>The app is running, but Vercel storage is not configured correctly.</p>
+    <ul>
+      {% for issue in issues %}
+        <li>{{ issue }}</li>
+      {% endfor %}
+    </ul>
+    {% if detail %}
+      <p><code>{{ detail }}</code></p>
+    {% endif %}
+    <p>After fixing Vercel environment variables, redeploy the latest commit.</p>
+    <p>Diagnostic endpoint: <code>/healthz</code></p>
+  </main>
+</body>
+</html>
