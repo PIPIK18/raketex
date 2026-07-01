@@ -10,6 +10,42 @@
     <p class="blog-meta">Posted by admin on {{ post.created_at[:10] }} | {{ post.category }}{% if not post.published %} | draft{% endif %}</p>
     <h2>{{ post.title }}</h2>
     <div class="post-body">{{ post.body }}</div>
+
+    <section id="comments" class="comments-block">
+      <div class="comments-head">
+        <h3>comments</h3>
+        <span>{{ comments|length }}</span>
+      </div>
+
+      <form class="comment-form" method="post" action="{{ url_for('add_comment', post_id=post.id) }}">
+        <div class="field">
+          <label for="comment-author">name</label>
+          <input id="comment-author" name="author" type="text" maxlength="40" placeholder="your name" />
+        </div>
+        <div class="field">
+          <label for="comment-body">comment</label>
+          <textarea id="comment-body" name="body" maxlength="1200" required placeholder="write something under this post"></textarea>
+        </div>
+        <button class="btn primary" type="submit">post comment</button>
+      </form>
+
+      <div class="comment-list">
+        {% if comments %}
+          {% for comment in comments %}
+            <article class="comment-box">
+              <div class="comment-meta">
+                <strong>{{ comment.author }}</strong>
+                <span>{{ comment.created_at[:10] }}</span>
+              </div>
+              <p>{{ comment.body }}</p>
+            </article>
+          {% endfor %}
+        {% else %}
+          <div class="comment-empty">No comments yet. Be the first to write under this post.</div>
+        {% endif %}
+      </div>
+    </section>
+
     <div class="row" style="margin-top: 14px;">
       <a class="btn" href="{{ url_for('home') }}">back</a>
       {% if is_admin %}

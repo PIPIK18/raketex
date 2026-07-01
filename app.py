@@ -100,6 +100,17 @@ def init_db():
                 )
                 """
             )
+            db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS comments (
+                    id BIGSERIAL PRIMARY KEY,
+                    post_id BIGINT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+                    author TEXT NOT NULL,
+                    body TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
         else:
             db.execute(
                 """
@@ -112,6 +123,18 @@ def init_db():
                     published INTEGER NOT NULL DEFAULT 1,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
+                )
+                """
+            )
+            db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS comments (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    post_id INTEGER NOT NULL,
+                    author TEXT NOT NULL,
+                    body TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
                 )
                 """
             )
@@ -295,6 +318,49 @@ def get_post(post_id, include_drafts=False):
         ).fetchone()
 
 
+def list_comments(post_id):
+    with get_db() as db:
+        if using_postgres():
+            return db.execute(
+                """
+                SELECT * FROM comments
+                WHERE post_id = %s
+                ORDER BY created_at ASC, id ASC
+                """,
+                (post_id,),
+            ).fetchall()
+
+        return db.execute(
+            """
+            SELECT * FROM comments
+            WHERE post_id = ?
+            ORDER BY created_at ASC, id ASC
+            """,
+            (post_id,),
+        ).fetchall()
+
+
+def create_comment(post_id, author, body):
+    with get_db() as db:
+        if using_postgres():
+            db.execute(
+                """
+                INSERT INTO comments (post_id, author, body, created_at)
+                VALUES (%s, %s, %s, %s)
+                """,
+                (post_id, author, body, now_iso()),
+            )
+            return
+
+        db.execute(
+            """
+            INSERT INTO comments (post_id, author, body, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (post_id, author, body, now_iso()),
+        )
+
+
 def list_admin_posts():
     with get_db() as db:
         return db.execute("SELECT * FROM posts ORDER BY created_at DESC").fetchall()
@@ -350,6 +416,7 @@ def delete_post_by_id(post_id):
         if using_postgres():
             db.execute("DELETE FROM posts WHERE id = %s", (post_id,))
             return
+        db.execute("DELETE FROM comments WHERE post_id = ?", (post_id,))
         db.execute("DELETE FROM posts WHERE id = ?", (post_id,))
 
 
@@ -418,7 +485,37 @@ def post_detail(post_id):
     post = get_post(post_id, include_drafts=is_admin())
     if post is None:
         return render_template("404.html"), 404
-    return render_template("post.html", post=post)
+    comments = list_comments(post_id)
+    return render_template("post.html", post=post, comments=comments)
+
+
+@app.route("/post/<int:post_id>/comments", methods=["POST"])
+def add_comment(post_id):
+    post = get_post(post_id, include_drafts=is_admin())
+    if post is None:
+        return render_template("404.html"), 404
+
+    author = request.form.get("author", "").strip() or "visitor"
+    body = request.form.get("body", "").strip()
+    if len(author) > 40:
+        author = author[:40]
+
+    if not body:
+        flash("Write a comment first.", "warn")
+        return redirect(url_for("post_detail", post_id=post_id) + "#comments")
+    if len(body) > 1200:
+        flash("Comment is too long. Keep it under 1200 characters.", "warn")
+        return redirect(url_for("post_detail", post_id=post_id) + "#comments")
+
+    try:
+        create_comment(post_id, author, body)
+    except Exception as exc:
+        app.logger.exception("Comment creation failed")
+        flash(f"Comment failed: {exc}", "warn")
+        return redirect(url_for("post_detail", post_id=post_id) + "#comments")
+
+    flash("Comment posted.", "ok")
+    return redirect(url_for("post_detail", post_id=post_id) + "#comments")
 
 
 @app.route("/admin")

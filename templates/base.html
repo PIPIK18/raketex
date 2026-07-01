@@ -217,6 +217,79 @@
     textarea { min-height: 160px; resize: vertical; }
     .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
     .post-body { white-space: pre-wrap; line-height: 1.65; color: #d9e0e8; }
+    .comments-block {
+      margin-top: 22px;
+      padding-top: 16px;
+      border-top: 1px solid var(--line);
+    }
+    .comments-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+    .comments-head h3 { margin: 0; }
+    .comments-head span {
+      min-width: 44px;
+      padding: 8px 14px;
+      text-align: center;
+      color: #ffc59e;
+      font-weight: 700;
+      background: #0b121c;
+      clip-path: polygon(10px 0, calc(100% - 10px) 0, 100% 50%, calc(100% - 10px) 100%, 10px 100%, 0 50%);
+    }
+    .comment-form {
+      display: grid;
+      gap: 10px;
+      margin-bottom: 14px;
+      padding: 14px;
+      border: 1px solid #2d3a4d;
+      background: rgba(13, 21, 32, .82);
+    }
+    .comment-form textarea { min-height: 110px; }
+    .comment-list { display: grid; gap: 10px; }
+    .comment-box,
+    .comment-empty {
+      position: relative;
+      padding: 14px 18px;
+      background: rgba(13, 21, 32, .96);
+      clip-path: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px);
+    }
+    .comment-box::before,
+    .comment-empty::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      z-index: -2;
+      background: #334054;
+      clip-path: inherit;
+    }
+    .comment-box::after,
+    .comment-empty::after {
+      content: "";
+      position: absolute;
+      inset: 1px;
+      z-index: -1;
+      background: rgba(13, 21, 32, .98);
+      clip-path: inherit;
+    }
+    .comment-meta {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 8px;
+      color: #ffc59e;
+      font-size: 13px;
+    }
+    .comment-meta strong { color: var(--ink); }
+    .comment-box p {
+      margin: 0;
+      white-space: pre-wrap;
+      line-height: 1.55;
+      color: #d9e0e8;
+    }
+    .comment-empty { color: var(--muted); }
     .admin-card {
       min-height: 560px;
       display: flex;
