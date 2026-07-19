@@ -333,18 +333,31 @@
     .login-panel h2 { font-size: 46px; }
     .login-panel input { min-height: 54px; font-size: 18px; }
     .login-panel .btn { font-size: 20px; }
-    .google-auth-actions {
+    .auth-mode-switch {
       display: grid;
-      justify-items: start;
-      gap: 10px;
-      margin-bottom: 24px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin-bottom: 18px;
     }
-    .google-auth-actions .btn { text-align: center; }
-    .google-account-prompt {
-      margin: 2px 0 -2px;
+    .auth-mode-switch .btn,
+    .provider-button { width: 100%; text-align: center; }
+    .auth-pane {
+      border-top: 1px solid var(--line);
+      padding-top: 18px;
+    }
+    .provider-actions { display: grid; gap: 10px; }
+    .provider-button::before { background: #3b4b61; }
+    .provider-button:hover::before { background: var(--accent); }
+    .account-create-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 14px;
+      margin-top: 16px;
       color: var(--muted);
       font-size: 13px;
     }
+    .account-create-links a { color: #dce6f2; }
+    .account-create-links a:hover { color: var(--accent); }
 
     @media (max-width: 780px) {
       .top { grid-template-columns: 1fr; }
@@ -376,7 +389,7 @@
           <a class="active" href="{{ url_for('login') }}">{{ current_user_name }}</a>
         {% else %}
           <a class="{% if request.endpoint in ['home', 'post_detail'] %}active{% endif %}" href="{{ url_for('home') }}">posts</a>
-          <a class="{% if request.endpoint in ['login', 'google_login', 'google_callback'] %}active{% endif %}" href="{{ url_for('login') }}">user</a>
+          <a class="{% if request.endpoint in ['login', 'google_login', 'google_callback', 'microsoft_login', 'microsoft_callback'] %}active{% endif %}" href="{{ url_for('login') }}">user</a>
         {% endif %}
       </nav>
     </header>

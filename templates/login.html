@@ -1,31 +1,65 @@
 {% extends "base.html" %}
 
-{% block title %}User Login - RAKETEX{% endblock %}
+{% block title %}User - RAKETEX{% endblock %}
 
 {% block body %}
+  {% set auth_next = request.args.get('next') %}
   <div class="login-wrap">
     <section class="panel login-panel">
-      <h2>User Login</h2>
-      {% if google_sign_in_enabled %}
-        <div class="google-auth-actions">
-          <a class="btn primary" href="{{ url_for('google_login') }}">sign in with google</a>
-          <p class="google-account-prompt">don't have a google account?</p>
-          <a class="btn" href="https://accounts.google.com/signup">create google account</a>
+      <h2>User</h2>
+      <div class="auth-mode-switch" aria-label="User access">
+        <a
+          class="btn{% if auth_mode == 'signin' %} primary{% endif %}"
+          href="{{ url_for('login', mode='signin', next=auth_next) if auth_next else url_for('login', mode='signin') }}"
+        >sign in</a>
+        <a
+          class="btn{% if auth_mode == 'login' %} primary{% endif %}"
+          href="{{ url_for('login', mode='login', next=auth_next) if auth_next else url_for('login', mode='login') }}"
+        >log in</a>
+      </div>
+
+      {% if auth_mode == 'signin' %}
+        <div class="auth-pane">
+          <div class="provider-actions">
+            {% if google_sign_in_enabled %}
+              <a
+                class="btn provider-button"
+                href="{{ url_for('google_login', next=auth_next) if auth_next else url_for('google_login') }}"
+              >continue with google</a>
+            {% endif %}
+            {% if microsoft_sign_in_enabled %}
+              <a
+                class="btn provider-button"
+                href="{{ url_for('microsoft_login', next=auth_next) if auth_next else url_for('microsoft_login') }}"
+              >continue with microsoft</a>
+            {% endif %}
+            {% if not google_sign_in_enabled and not microsoft_sign_in_enabled %}
+              <p class="muted">Account sign-in is not configured yet.</p>
+            {% endif %}
+          </div>
+          <div class="account-create-links">
+            <span>new account:</span>
+            <a href="https://accounts.google.com/signup">google</a>
+            <a href="https://signup.live.com/">microsoft</a>
+          </div>
         </div>
       {% else %}
-        <p class="muted">Google sign-in needs GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.</p>
+        <form
+          class="auth-pane"
+          method="post"
+          action="{{ url_for('login', mode='login', next=auth_next) if auth_next else url_for('login', mode='login') }}"
+        >
+          <div class="field">
+            <label for="username">username</label>
+            <input id="username" name="username" type="text" autocomplete="username" required />
+          </div>
+          <div class="field">
+            <label for="password">password</label>
+            <input id="password" name="password" type="password" autocomplete="current-password" required />
+          </div>
+          <button class="btn primary" type="submit">log in</button>
+        </form>
       {% endif %}
-      <form method="post">
-        <div class="field">
-          <label for="username">username</label>
-          <input id="username" name="username" type="text" autocomplete="username" required />
-        </div>
-        <div class="field">
-          <label for="password">password</label>
-          <input id="password" name="password" type="password" autocomplete="current-password" required />
-        </div>
-        <button class="btn primary" type="submit">sign in</button>
-      </form>
     </section>
   </div>
 {% endblock %}

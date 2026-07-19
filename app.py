@@ -42,6 +42,13 @@ GOOGLE_REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI")
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
+MICROSOFT_CLIENT_ID = os.environ.get("MICROSOFT_CLIENT_ID")
+MICROSOFT_CLIENT_SECRET = os.environ.get("MICROSOFT_CLIENT_SECRET")
+MICROSOFT_REDIRECT_URI = os.environ.get("MICROSOFT_REDIRECT_URI")
+MICROSOFT_TENANT = os.environ.get("MICROSOFT_TENANT", "common")
+MICROSOFT_AUTH_URL = f"https://login.microsoftonline.com/{MICROSOFT_TENANT}/oauth2/v2.0/authorize"
+MICROSOFT_TOKEN_URL = f"https://login.microsoftonline.com/{MICROSOFT_TENANT}/oauth2/v2.0/token"
+MICROSOFT_USERINFO_URL = "https://graph.microsoft.com/oidc/userinfo"
 
 
 app = Flask(__name__)
@@ -231,7 +238,24 @@ def google_redirect_uri():
     return GOOGLE_REDIRECT_URI or url_for("google_callback", _external=True)
 
 
-def request_json(url, data=None, headers=None):
+def microsoft_sign_in_enabled():
+    return bool(MICROSOFT_CLIENT_ID and MICROSOFT_CLIENT_SECRET)
+
+
+def microsoft_redirect_uri():
+    return MICROSOFT_REDIRECT_URI or url_for("microsoft_callback", _external=True)
+
+
+def safe_next_url(value):
+    if not value:
+        return None
+    parsed = urlparse(value)
+    if parsed.scheme or parsed.netloc or not value.startswith("/"):
+        return None
+    return value
+
+
+def request_json(url, data=None, headers=None, provider="Authentication provider"):
     body = None
     request_headers = headers or {}
     if data is not None:
@@ -244,9 +268,9 @@ def request_json(url, data=None, headers=None):
             return json.loads(response.read().decode("utf-8"))
     except HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"Google returned {exc.code}: {detail}") from exc
+        raise RuntimeError(f"{provider} returned {exc.code}: {detail}") from exc
     except URLError as exc:
-        raise RuntimeError(f"Could not reach Google: {exc.reason}") from exc
+        raise RuntimeError(f"Could not reach {provider}: {exc.reason}") from exc
 
 
 def image_is_allowed(filename):
@@ -457,11 +481,13 @@ def create_comment(post_id, user_id, author, body):
         )
 
 
-def upsert_google_user(google_id, email, display_name, avatar_url):
+def upsert_oauth_user(provider, provider_user_id, email, display_name, avatar_url):
+    # Keep the original column compatible with existing Google accounts.
+    external_id = provider_user_id if provider == "google" else f"{provider}:{provider_user_id}"
     timestamp = now_iso()
     with get_db() as db:
         if using_postgres():
-            user = db.execute("SELECT * FROM users WHERE google_id = %s", (google_id,)).fetchone()
+            user = db.execute("SELECT * FROM users WHERE google_id = %s", (external_id,)).fetchone()
             if user:
                 db.execute(
                     """
@@ -479,10 +505,10 @@ def upsert_google_user(google_id, email, display_name, avatar_url):
                 VALUES (%s, %s, %s, %s, %s)
                 RETURNING *
                 """,
-                (google_id, email, display_name, avatar_url, timestamp),
+                (external_id, email, display_name, avatar_url, timestamp),
             ).fetchone()
 
-        user = db.execute("SELECT * FROM users WHERE google_id = ?", (google_id,)).fetchone()
+        user = db.execute("SELECT * FROM users WHERE google_id = ?", (external_id,)).fetchone()
         if user:
             db.execute(
                 """
@@ -499,7 +525,7 @@ def upsert_google_user(google_id, email, display_name, avatar_url):
             INSERT INTO users (google_id, email, display_name, avatar_url, created_at)
             VALUES (?, ?, ?, ?, ?)
             """,
-            (google_id, email, display_name, avatar_url, timestamp),
+            (external_id, email, display_name, avatar_url, timestamp),
         )
         return db.execute("SELECT * FROM users WHERE id = ?", (cursor.lastrowid,)).fetchone()
 
@@ -616,6 +642,7 @@ def inject_admin_state():
         "is_signed_in": is_signed_in(),
         "current_user_name": current_user_name(),
         "google_sign_in_enabled": google_sign_in_enabled(),
+        "microsoft_sign_in_enabled": microsoft_sign_in_enabled(),
         "post_image_src": post_image_src,
     }
 
@@ -660,7 +687,8 @@ def add_comment(post_id):
         return render_template("404.html"), 404
     if not is_signed_in():
         flash("Sign in with user first.", "warn")
-        return redirect(url_for("login") + f"?next={url_for('post_detail', post_id=post_id)}#comments")
+        comment_target = f"{url_for('post_detail', post_id=post_id)}#comments"
+        return redirect(url_for("login", next=comment_target))
 
     author = current_user_name()
     body = request.form.get("body", "").strip()
@@ -712,7 +740,12 @@ def admin():
 @app.route("/admin/login", methods=["GET", "POST"])
 @app.route("/user/login", methods=["GET", "POST"])
 def login():
+    auth_mode = request.args.get("mode", "signin")
+    if auth_mode not in {"signin", "login"}:
+        auth_mode = "signin"
+
     if request.method == "POST":
+        auth_mode = "login"
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
         if username == admin_username() and check_password_hash(admin_password_hash(), password):
@@ -720,9 +753,9 @@ def login():
             session["is_admin"] = True
             session["user_name"] = admin_username()
             flash("Signed in.", "ok")
-            return redirect(request.args.get("next") or url_for("admin"))
+            return redirect(safe_next_url(request.args.get("next")) or url_for("admin"))
         flash("Wrong username or password.", "warn")
-    return render_template("login.html")
+    return render_template("login.html", auth_mode=auth_mode)
 
 
 @app.route("/login/google")
@@ -733,6 +766,7 @@ def google_login():
 
     state = secrets.token_urlsafe(24)
     session["google_oauth_state"] = state
+    session["oauth_next"] = safe_next_url(request.args.get("next"))
     params = {
         "client_id": GOOGLE_CLIENT_ID,
         "redirect_uri": google_redirect_uri(),
@@ -775,11 +809,16 @@ def google_callback():
                 "redirect_uri": google_redirect_uri(),
                 "grant_type": "authorization_code",
             },
+            provider="Google",
         )
         access_token = token.get("access_token")
         if not access_token:
             raise RuntimeError("Google did not return an access token.")
-        userinfo = request_json(GOOGLE_USERINFO_URL, headers={"Authorization": f"Bearer {access_token}"})
+        userinfo = request_json(
+            GOOGLE_USERINFO_URL,
+            headers={"Authorization": f"Bearer {access_token}"},
+            provider="Google",
+        )
     except RuntimeError as exc:
         app.logger.exception("Google sign-in failed")
         flash(str(exc), "warn")
@@ -792,18 +831,109 @@ def google_callback():
         flash("Google sign-in did not return a user id.", "warn")
         return redirect(url_for("login"))
 
-    user = upsert_google_user(
-        google_id=google_id,
+    user = upsert_oauth_user(
+        provider="google",
+        provider_user_id=google_id,
         email=userinfo.get("email"),
         display_name=display_name[:80],
         avatar_url=userinfo.get("picture"),
     )
+    next_url = session.pop("oauth_next", None)
     session.clear()
     session["user_id"] = user["id"]
     session["user_name"] = user["display_name"]
     session["is_admin"] = False
     flash("Signed in.", "ok")
-    return redirect(url_for("home"))
+    return redirect(next_url or url_for("home"))
+
+
+@app.route("/login/microsoft")
+def microsoft_login():
+    if not microsoft_sign_in_enabled():
+        flash("Microsoft sign-in is not configured yet.", "warn")
+        return redirect(url_for("login"))
+
+    state = secrets.token_urlsafe(24)
+    session["microsoft_oauth_state"] = state
+    session["oauth_next"] = safe_next_url(request.args.get("next"))
+    params = {
+        "client_id": MICROSOFT_CLIENT_ID,
+        "redirect_uri": microsoft_redirect_uri(),
+        "response_type": "code",
+        "response_mode": "query",
+        "scope": "openid profile email",
+        "state": state,
+        "prompt": "select_account",
+    }
+    return redirect(f"{MICROSOFT_AUTH_URL}?{urlencode(params)}")
+
+
+@app.route("/auth/microsoft/callback")
+def microsoft_callback():
+    if not microsoft_sign_in_enabled():
+        flash("Microsoft sign-in is not configured yet.", "warn")
+        return redirect(url_for("login"))
+
+    error = request.args.get("error")
+    if error:
+        flash(f"Microsoft sign-in failed: {error}", "warn")
+        return redirect(url_for("login"))
+
+    state = request.args.get("state")
+    if not state or state != session.pop("microsoft_oauth_state", None):
+        flash("Microsoft sign-in state did not match. Try again.", "warn")
+        return redirect(url_for("login"))
+
+    code = request.args.get("code")
+    if not code:
+        flash("Microsoft sign-in did not return a code.", "warn")
+        return redirect(url_for("login"))
+
+    try:
+        token = request_json(
+            MICROSOFT_TOKEN_URL,
+            {
+                "code": code,
+                "client_id": MICROSOFT_CLIENT_ID,
+                "client_secret": MICROSOFT_CLIENT_SECRET,
+                "redirect_uri": microsoft_redirect_uri(),
+                "grant_type": "authorization_code",
+            },
+            provider="Microsoft",
+        )
+        access_token = token.get("access_token")
+        if not access_token:
+            raise RuntimeError("Microsoft did not return an access token.")
+        userinfo = request_json(
+            MICROSOFT_USERINFO_URL,
+            headers={"Authorization": f"Bearer {access_token}"},
+            provider="Microsoft",
+        )
+    except RuntimeError as exc:
+        app.logger.exception("Microsoft sign-in failed")
+        flash(str(exc), "warn")
+        return redirect(url_for("login"))
+
+    microsoft_id = userinfo.get("sub")
+    display_name = (userinfo.get("name") or userinfo.get("email") or "user").strip()
+    if not microsoft_id:
+        flash("Microsoft sign-in did not return a user id.", "warn")
+        return redirect(url_for("login"))
+
+    user = upsert_oauth_user(
+        provider="microsoft",
+        provider_user_id=microsoft_id,
+        email=userinfo.get("email"),
+        display_name=display_name[:80],
+        avatar_url=userinfo.get("picture"),
+    )
+    next_url = session.pop("oauth_next", None)
+    session.clear()
+    session["user_id"] = user["id"]
+    session["user_name"] = user["display_name"]
+    session["is_admin"] = False
+    flash("Signed in.", "ok")
+    return redirect(next_url or url_for("home"))
 
 
 @app.route("/admin/logout", methods=["POST"])
