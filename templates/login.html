@@ -7,7 +7,11 @@
     <section class="panel login-panel">
       <h2>User Login</h2>
       {% if google_sign_in_enabled %}
-        <a class="btn primary" href="{{ url_for('google_login') }}">sign in with google</a>
+        <div class="google-auth-actions">
+          <a class="btn primary" href="{{ url_for('google_login') }}">sign in with google</a>
+          <p class="google-account-prompt">don't have a google account?</p>
+          <a class="btn" href="https://accounts.google.com/signup">create google account</a>
+        </div>
       {% else %}
         <p class="muted">Google sign-in needs GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.</p>
       {% endif %}
