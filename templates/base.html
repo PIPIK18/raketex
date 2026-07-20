@@ -389,7 +389,7 @@
           <a class="active" href="{{ url_for('login') }}">{{ current_user_name }}</a>
         {% else %}
           <a class="{% if request.endpoint in ['home', 'post_detail'] %}active{% endif %}" href="{{ url_for('home') }}">posts</a>
-          <a class="{% if request.endpoint in ['login', 'google_login', 'google_callback', 'microsoft_login', 'microsoft_callback'] %}active{% endif %}" href="{{ url_for('login') }}">user</a>
+          <a class="{% if request.endpoint in ['login', 'google_login', 'google_callback'] %}active{% endif %}" href="{{ url_for('login') }}">user</a>
         {% endif %}
       </nav>
     </header>

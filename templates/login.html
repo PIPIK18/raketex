@@ -27,20 +27,13 @@
                 href="{{ url_for('google_login', next=auth_next) if auth_next else url_for('google_login') }}"
               >continue with google</a>
             {% endif %}
-            {% if microsoft_sign_in_enabled %}
-              <a
-                class="btn provider-button"
-                href="{{ url_for('microsoft_login', next=auth_next) if auth_next else url_for('microsoft_login') }}"
-              >continue with microsoft</a>
-            {% endif %}
-            {% if not google_sign_in_enabled and not microsoft_sign_in_enabled %}
+            {% if not google_sign_in_enabled %}
               <p class="muted">Account sign-in is not configured yet.</p>
             {% endif %}
           </div>
           <div class="account-create-links">
             <span>new account:</span>
             <a href="https://accounts.google.com/signup">google</a>
-            <a href="https://signup.live.com/">microsoft</a>
           </div>
         </div>
       {% else %}

@@ -52,9 +52,6 @@ RAKETEX_ADMIN_PASSWORD
 GOOGLE_CLIENT_ID
 GOOGLE_CLIENT_SECRET
 GOOGLE_REDIRECT_URI
-MICROSOFT_CLIENT_ID
-MICROSOFT_CLIENT_SECRET
-MICROSOFT_REDIRECT_URI
 ```
 
 `RAKETEX_SECRET_KEY` should be a long random value. `RAKETEX_ADMIN_PASSWORD` replaces the local default password.
@@ -66,14 +63,6 @@ For Google sign-in, create OAuth credentials in Google Cloud Console and add thi
 ```text
 https://your-site.vercel.app/auth/google/callback
 ```
-
-For Microsoft sign-in, register a web application in Microsoft Entra ID that supports personal Microsoft accounts and add this redirect URI:
-
-```text
-https://your-site.vercel.app/auth/microsoft/callback
-```
-
-Use the app's client ID and client secret for the `MICROSOFT_CLIENT_ID` and `MICROSOFT_CLIENT_SECRET` variables. `MICROSOFT_TENANT` is optional and defaults to `common`.
 
 Vercel recognizes `app.py` as a Flask entrypoint, so no static `index.html` is needed.
 
