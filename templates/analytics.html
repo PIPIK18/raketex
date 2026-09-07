@@ -1,0 +1,21 @@
+<style>
+  .cookie-settings { position: relative; z-index: 2; margin: 0 18px 18px; }
+  .cookie-banner { position: fixed; bottom: 16px; left: 16px; right: 16px; z-index: 100; max-width: 600px; padding: 20px; border: 1px solid var(--line); background: var(--panel); box-shadow: 0 8px 30px #0008; max-height: 80vh; overflow: auto; }
+  .cookie-banner[hidden], .cookie-settings[hidden] { display: none; }
+  .cookie-banner h2 { margin: 0 0 8px; font-size: 20px; }
+  .cookie-banner p { line-height: 1.5; margin: 0 0 16px; }
+  .cookie-actions { display: flex; gap: 12px; flex-wrap: wrap; }
+  .cookie-button { padding: 10px 16px; color: var(--ink); background: var(--panel-2); border: 1px solid var(--accent); cursor: pointer; }
+  .cookie-button:hover { background: #303b49; }
+  .cookie-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+</style>
+<button type="button" class="cookie-settings cookie-button" id="cookie-settings" hidden>Cookie settings</button>
+<section class="cookie-banner" id="cookie-banner" aria-labelledby="cookie-title" hidden>
+  <h2 id="cookie-title">Analytics cookies</h2>
+  <p>With your permission, we use Google Analytics to measure visits and see which pages people read. Google receives information about your visit and stores analytics cookies in your browser. You can reject analytics and still use the website, or change your choice in Cookie settings.</p>
+  <div class="cookie-actions">
+    <button type="button" class="cookie-button" id="cookie-accept">Accept analytics</button>
+    <button type="button" class="cookie-button" id="cookie-reject">Reject analytics</button>
+  </div>
+</section>
+<script src="{{ url_for('asset_file', filename='analytics.js') }}" data-track-page="{{ 'true' if request.endpoint in ['home', 'post_detail'] and not is_admin else 'false' }}" defer></script>

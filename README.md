@@ -1,5 +1,24 @@
 # RAKETEX
 
+## Google Analytics
+
+Google Analytics uses measurement ID `G-VZ21P594BP`. The shared template includes
+`templates/analytics.html`, with consent handling in `assets/analytics.js`.
+No extra environment variables are needed. Deploy these files with the app.
+
+Analytics loads only after the visitor selects **Accept analytics**. The choice
+is remembered for 180 days when browser storage is available. **Cookie settings**
+allows visitors to change it; rejecting after accepting disables tracking, clears
+GA cookies, and reloads the page to unload the Google library. Analytics records
+the home and post pages only, excluding administrators, login, and editing pages.
+Advertising consent stays denied. Visitors who reject analytics are not counted.
+
+After deployment, visit the public home page while logged out of the admin account,
+accept analytics, and check Google Analytics **Realtime**. Allow up to 30 minutes
+for initial collection. A browser blocker can prevent the tag from loading.
+Rejecting analytics should produce no requests to Google Analytics or Tag Manager
+on subsequent page loads. This measures new traffic from installation onward.
+
 RAKETEX is a Flask app. It is set up to run locally with SQLite/local uploads and on Vercel with Postgres/Vercel Blob for persistent shared posts and images.
 
 ## Local run
