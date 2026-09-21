@@ -1,0 +1,9 @@
+<div class="post-segments">
+  {% for segment in post_segments(content) %}
+    {% if segment.type == 'image' %}
+      <img class="post-image" src="{{ post_image_src(segment.image_filename) }}" alt="" loading="lazy" />
+    {% else %}
+      <div class="post-body">{{ segment.text }}</div>
+    {% endif %}
+  {% endfor %}
+</div>

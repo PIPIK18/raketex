@@ -1,5 +1,6 @@
 (() => {
   const form = document.getElementById("post-editor");
+  const contentType = form.dataset.contentType || "post";
   const list = document.getElementById("segments");
   const fields = document.getElementById("editor-fields");
   const error = document.getElementById("editor-error");
@@ -38,7 +39,7 @@
 
   function addSegment(item, focus = false) {
     if (cards().length >= 100) {
-      showError("A post can contain up to 100 segments.");
+      showError(`A ${contentType} can contain up to 100 segments.`);
       return;
     }
     const id = `segment-${nextId++}`;
@@ -90,7 +91,7 @@
       });
     } else {
       input.value = item.text || "";
-      input.placeholder = "Write this part of your post...";
+      input.placeholder = `Write this part of your ${contentType}...`;
     }
     list.append(card);
     refresh();
@@ -199,17 +200,17 @@
     const data = new FormData(form);
     data.set("segments", JSON.stringify(segments));
     fields.disabled = true;
-    announce("Saving post...");
+    announce(`Saving ${contentType}...`);
     try {
       const response = await fetch(form.action, {method: "POST", body: data, headers: {Accept: "application/json"}});
-      if (response.redirected) throw new Error("Your session has expired. Sign in again in another tab, then save your post here.");
+      if (response.redirected) throw new Error(`Your session has expired. Sign in again in another tab, then save your ${contentType} here.`);
       if (response.status === 413) throw new Error("The selected images are too large to save together. Use smaller images and try again.");
-      if (!response.headers.get("content-type")?.includes("application/json")) throw new Error("Could not save your post. Please try again; your segments are still here.");
+      if (!response.headers.get("content-type")?.includes("application/json")) throw new Error(`Could not save your ${contentType}. Please try again; your segments are still here.`);
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Could not save your post. Please try again.");
+      if (!response.ok) throw new Error(result.error || `Could not save your ${contentType}. Please try again.`);
       window.location.assign(result.redirect);
     } catch (failure) {
-      showError(failure.message || "Could not save your post. Please try again.");
+      showError(failure.message || `Could not save your ${contentType}. Please try again.`);
       announce("");
       fields.disabled = false;
     }

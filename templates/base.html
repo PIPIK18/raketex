@@ -46,7 +46,7 @@
     }
 
     a { color: inherit; }
-    button, input, textarea { font: inherit; }
+    button, input, textarea, select { font: inherit; }
     .page {
       max-width: 1120px;
       margin: 0 auto;
@@ -113,6 +113,8 @@
     .hero p { margin: 0; color: #d8e0e8; max-width: 620px; }
     .panel { border: 1px solid var(--line); background: var(--panel); padding: 12px; margin-top: 12px; }
     .panel h2, .panel h3 { margin: 0 0 10px; font-family: "Teko", sans-serif; font-size: 34px; line-height: 1; letter-spacing: 0; }
+    .project-tabs { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; margin: 30px 0 22px; }
+    .section-heading { margin-top: 22px; justify-content: space-between; }
     .blog-head { margin-top: 18px; display: flex; justify-content: flex-end; }
     .blog-head form { width: min(320px, 100%); }
     .blog-title { margin: 0; font-family: "Teko", sans-serif; font-size: 58px; line-height: .9; letter-spacing: 0; }
@@ -206,7 +208,7 @@
     }
     .field { display: grid; gap: 5px; margin-bottom: 10px; }
     .field label { color: var(--muted); font-size: 12px; font-weight: 700; text-transform: lowercase; }
-    input, textarea {
+    input, textarea, select {
       width: 100%;
       border: 1px solid #35445a;
       background: #080d14;
@@ -362,8 +364,8 @@
     .account-create-links a:hover { color: var(--accent); }
 
     @media (max-width: 780px) {
-      .top { grid-template-columns: 1fr; }
-      .logo { grid-column: auto; font-size: 72px; }
+      .top { grid-template-columns: minmax(0, 1fr); }
+      .logo { grid-column: auto; font-size: clamp(48px, 18vw, 72px); }
       .menu { justify-content: flex-start; }
       .hero h1 { font-size: 54px; }
       .blog-head { grid-template-columns: 1fr; }
@@ -382,15 +384,18 @@
             <button type="submit">logout</button>
           </form>
           <a class="{% if request.endpoint in ['home', 'post_detail'] %}active{% endif %}" href="{{ url_for('home') }}">posts</a>
-          <a class="{% if request.endpoint in ['admin', 'new_post', 'edit_post'] %}active{% endif %}" href="{{ url_for('admin') }}">admin</a>
+          <a class="{% if request.endpoint in ['projects', 'project_detail', 'project_posts'] %}active{% endif %}" href="{{ url_for('projects') }}">projects</a>
+          <a class="{% if request.endpoint in ['admin', 'new_post', 'edit_post', 'admin_projects', 'new_project', 'edit_project'] %}active{% endif %}" href="{{ url_for('admin') }}">admin</a>
         {% elif is_signed_in %}
           <form action="{{ url_for('logout') }}" method="post" style="margin:0;">
             <button type="submit">logout</button>
           </form>
           <a class="{% if request.endpoint in ['home', 'post_detail'] %}active{% endif %}" href="{{ url_for('home') }}">posts</a>
+          <a class="{% if request.endpoint in ['projects', 'project_detail', 'project_posts'] %}active{% endif %}" href="{{ url_for('projects') }}">projects</a>
           <a class="active" href="{{ url_for('login') }}">{{ current_user_name }}</a>
         {% else %}
           <a class="{% if request.endpoint in ['home', 'post_detail'] %}active{% endif %}" href="{{ url_for('home') }}">posts</a>
+          <a class="{% if request.endpoint in ['projects', 'project_detail', 'project_posts'] %}active{% endif %}" href="{{ url_for('projects') }}">projects</a>
           <a class="{% if request.endpoint in ['login', 'google_login', 'google_callback'] %}active{% endif %}" href="{{ url_for('login') }}">user</a>
         {% endif %}
       </nav>

@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}{{ selected_status|capitalize }} Projects - RAKETEX{% endblock %}
+{% block body %}
+  {% include "project_tabs.html" %}
+  <div class="section-heading row">
+    <h1 class="blog-title">{{ selected_status }} projects</h1>
+    {% if is_admin %}<a class="btn" href="{{ url_for('admin_projects') }}">manage projects</a>{% endif %}
+  </div>
+  <section class="blog-list" aria-label="{{ selected_status }} projects">
+    {% for project in projects %}
+      <a class="blog-entry" href="{{ url_for('project_detail', project_id=project.id) }}">
+        <div>
+          <h2>{{ project.title }}</h2>
+          <p class="blog-meta">{{ project.status }} | {{ project.category }}</p>
+          <p class="blog-excerpt">{{ project.body[:260] }}{% if project.body|length > 260 %}...{% endif %}</p>
+        </div>
+        {% if project.image_filename %}<img class="blog-thumb" src="{{ post_image_src(project.image_filename) }}" alt="" />{% endif %}
+      </a>
+    {% else %}
+      <div class="panel">
+        <h2>No {{ selected_status }} projects yet</h2>
+        <p class="muted">Projects will appear here when they are added.</p>
+      </div>
+    {% endfor %}
+  </section>
+{% endblock %}

@@ -53,6 +53,28 @@ python tests/browser_post_editor.py
 
 Both suites use temporary databases and uploads, leaving real posts untouched.
 
+## Projects
+
+The **projects** navigation item opens the **ongoing**, **finished**, and
+**planned** tabs below the logo. Projects use the same list layout as posts;
+clicking one opens its introduction with ordered text and image segments.
+
+Use **admin → manage projects → new project** to create one. Enter a name,
+choose its state, and build the introduction with the existing segment editor.
+Projects can be edited, moved between states, saved as drafts, or deleted.
+Drafts are visible only to administrators. Deleting a project keeps its posts.
+
+The **post category** field links a project to posts. Leaving it blank uses the
+project name; enter an existing category to connect existing posts instead.
+**View project posts** shows published posts with that exact category, ignoring
+capitalization and surrounding spaces. For example, `Falcon` matches `falcon`
+but not `Falcon Heavy`. Renaming a project does not rename its existing category
+or any posts; edit the post category separately if needed.
+
+The `projects` table is created automatically for SQLite and Postgres when the
+app starts. The browser checks also exercise project creation, state changes,
+category links, deletion, and responsive layouts.
+
 ## Local run
 
 ```powershell

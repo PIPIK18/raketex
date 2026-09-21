@@ -6,15 +6,7 @@
   <article class="panel">
     <p class="blog-meta">Posted by admin on {{ post.created_at[:10] }} | {{ post.category }}{% if not post.published %} | draft{% endif %}</p>
     <h2>{{ post.title }}</h2>
-    <div class="post-segments">
-      {% for segment in post_segments(post) %}
-        {% if segment.type == 'image' %}
-          <img class="post-image" src="{{ post_image_src(segment.image_filename) }}" alt="" loading="lazy" />
-        {% else %}
-          <div class="post-body">{{ segment.text }}</div>
-        {% endif %}
-      {% endfor %}
-    </div>
+    {% with content=post %}{% include "content_segments.html" %}{% endwith %}
 
     <section id="comments" class="comments-block">
       <div class="comments-head">

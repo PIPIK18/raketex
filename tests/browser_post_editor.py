@@ -25,6 +25,68 @@ class QuietHandler(WSGIRequestHandler):
 PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a4z8AAAAASUVORK5CYII=")
 
 
+def check_projects(page, origin):
+    page.set_viewport_size({"width": 1280, "height": 1600})
+    page.locator(".menu").get_by_role("link", name="admin", exact=True).click()
+    page.get_by_role("link", name="manage projects", exact=True).click()
+    page.get_by_role("link", name="new project", exact=True).click()
+    page.get_by_label("project name", exact=True).fill("Falcon test project")
+    page.get_by_label("post category", exact=True).fill("build log")
+    page.get_by_label("project state", exact=True).select_option("ongoing")
+    for text in ["Meet our new rocket project.", "Follow the build in the project posts."]:
+        page.locator("[data-add='text']").click()
+        page.locator("textarea").last.fill(text)
+    page.locator("[data-add='image']").click()
+    page.locator("input[type='file']").set_input_files({"name": "project.png", "mimeType": "image/png", "buffer": PNG})
+    page.locator(".segment-handle").last.focus()
+    page.keyboard.press("ArrowUp")
+    page.locator("#save-post").click()
+    page.wait_for_url(origin + "/admin/projects")
+    project = site.list_projects()[0]
+    assert project["category"] == "build log"
+    assert [s["type"] for s in site.post_segments(project)] == ["text", "image", "text"]
+
+    # Public navigation, familiar post row layout, and project introduction.
+    page.locator(".menu").get_by_role("link", name="projects", exact=True).click()
+    assert page.locator(".project-tabs a").all_text_contents() == ["ongoing", "finished", "planned"]
+    assert page.locator(".blog-entry h2").all_text_contents() == ["Falcon test project"]
+    page.locator(".blog-entry").click()
+    assert page.locator(".post-segments > *").evaluate_all("items => items.map(i => i.tagName)") == ["DIV", "IMG", "DIV"]
+    site.create_post("Unrelated post", "somewhere else", "Nothing to do with this project", None, True)
+    page.get_by_role("link", name="view project posts", exact=True).click()
+    assert page.locator(".blog-entry h2").all_text_contents() == ["Browser segment test"]
+    page.get_by_role("link", name="back to project", exact=True).click()
+    page.get_by_role("link", name="edit project", exact=True).click()
+    assert page.locator(".segment").count() == 3
+    assert page.locator(".image-preview.visible").count() == 1
+    page.get_by_label("project state", exact=True).select_option("finished")
+    page.locator("#save-post").click()
+    page.wait_for_url(origin + "/admin/projects")
+    page.locator(".menu").get_by_role("link", name="projects", exact=True).click()
+    assert page.locator(".blog-entry").count() == 0
+    page.locator(".project-tabs").get_by_role("link", name="finished", exact=True).click()
+    assert page.locator(".blog-entry h2").all_text_contents() == ["Falcon test project"]
+    page.screenshot(path=str(Path(tempfile.gettempdir()) / "raketex-projects-desktop.png"), full_page=True)
+    for width in [800, 390, 320]:
+        page.set_viewport_size({"width": width, "height": 844})
+        assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth"), (width, page.evaluate("Array.from(document.querySelectorAll('body *')).filter(e => e.getBoundingClientRect().right > innerWidth).map(e => [e.tagName, e.className, e.getBoundingClientRect().width])"))
+        assert page.locator(".menu").get_by_role("link", name="projects", exact=True).is_visible()
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.screenshot(path=str(Path(tempfile.gettempdir()) / "raketex-projects-mobile.png"), full_page=True)
+    page.locator(".project-tabs").get_by_role("link", name="planned", exact=True).click()
+    assert page.locator(".blog-entry").count() == 0
+    page.get_by_role("link", name="manage projects", exact=True).click()
+    page.locator(".admin-card").get_by_role("button", name="delete", exact=True).click()
+    page.wait_for_url(origin + "/admin/projects")
+    assert site.list_projects() == []
+    assert len(site.list_admin_posts()) == 2
+    page.context.clear_cookies()
+    page.goto(origin + "/projects")
+    assert page.locator(".menu").get_by_role("link", name="projects", exact=True).is_visible()
+    assert page.locator(".menu").get_by_role("link", name="admin", exact=True).count() == 0
+    print("PASS: project creation, reusable editor, state changes, category-linked posts, deletion, visitor navigation, and responsive layouts")
+
+
 def main():
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
@@ -114,6 +176,7 @@ def main():
                     page.goto(origin + f'/post/{post["id"]}')
                     assert page.locator(".post-segments > *").evaluate_all("items => items.map(i => i.tagName)") == ["IMG", "DIV", "DIV"]
                     assert page.locator(".post-body").all_text_contents() == ["Opening text", "Closing text"]
+                    check_projects(page, origin)
                     assert not errors, errors
                     browser.close()
                     print("PASS: desktop drag, mobile touch drag, keyboard reorder, previews, failed-save recovery, persistence, removal, and public rendering")

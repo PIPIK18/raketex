@@ -36,6 +36,7 @@ DATABASE_URL = os.environ.get("DATABASE_URL") or os.environ.get("POSTGRES_URL")
 BLOB_READ_WRITE_TOKEN = os.environ.get("BLOB_READ_WRITE_TOKEN")
 ALLOWED_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp"}
 DB_INIT_DONE = False
+PROJECT_STATES = ("ongoing", "finished", "planned")
 PRIVATE_BLOB_PREFIX = "blob-private:"
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET")
@@ -179,6 +180,21 @@ def init_db():
             )
         ensure_comment_user_id_column(db)
         ensure_post_segments_column(db)
+        project_id_type = "BIGSERIAL PRIMARY KEY" if using_postgres() else "INTEGER PRIMARY KEY AUTOINCREMENT"
+        db.execute(f"""
+            CREATE TABLE IF NOT EXISTS projects (
+                id {project_id_type},
+                title TEXT NOT NULL,
+                category TEXT NOT NULL,
+                status TEXT NOT NULL CHECK (status IN ('ongoing', 'finished', 'planned')),
+                body TEXT NOT NULL,
+                image_filename TEXT,
+                segments TEXT NOT NULL,
+                published BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """)
     DB_INIT_DONE = True
 
 
@@ -209,7 +225,7 @@ def read_post_segments(post=None):
     try:
         items = json.loads(request.form.get("segments", "[]"))
     except (ValueError, TypeError) as exc:
-        raise ValueError("Could not read the post segments. Reload the editor and try again.") from exc
+        raise ValueError("Could not read the segments. Reload the editor and try again.") from exc
     if not isinstance(items, list) or not 1 <= len(items) <= 100:
         raise ValueError("Add between 1 and 100 image or text segments.")
 
@@ -220,7 +236,7 @@ def read_post_segments(post=None):
     # Validate every segment before uploading any files.
     for position, item in enumerate(items, 1):
         if not isinstance(item, dict):
-            raise ValueError("Invalid post segment.")
+            raise ValueError("Invalid content segment.")
         segment_id = item.get("id")
         if not isinstance(segment_id, str) or not re.fullmatch(r"[a-zA-Z0-9_-]{1,64}", segment_id) or segment_id in seen:
             raise ValueError("Invalid or duplicate segment ID.")
@@ -602,6 +618,53 @@ def list_admin_posts():
         return db.execute("SELECT * FROM posts ORDER BY created_at DESC").fetchall()
 
 
+def list_projects(status=None, include_drafts=False):
+    marker = "%s" if using_postgres() else "?"
+    conditions = [f"(published = TRUE OR {marker} = TRUE)"]
+    values = [include_drafts]
+    if status is not None:
+        conditions.append(f"status = {marker}")
+        values.append(status)
+    with get_db() as db:
+        return db.execute(
+            f"SELECT * FROM projects WHERE {' AND '.join(conditions)} ORDER BY created_at DESC, id DESC",
+            tuple(values),
+        ).fetchall()
+
+
+def get_project(project_id, include_drafts=False):
+    marker = "%s" if using_postgres() else "?"
+    with get_db() as db:
+        return db.execute(
+            f"SELECT * FROM projects WHERE id = {marker} AND (published = TRUE OR {marker} = TRUE)",
+            (project_id, include_drafts),
+        ).fetchone()
+
+
+def save_project(project_id, title, category, status, body, image_filename, published, segments):
+    marker = "%s" if using_postgres() else "?"
+    values = (title, category, status, body, image_filename, published, json.dumps(segments), now_iso())
+    with get_db() as db:
+        if project_id is None:
+            db.execute(
+                "INSERT INTO projects (title, category, status, body, image_filename, published, segments, updated_at, created_at) "
+                f"VALUES ({', '.join([marker] * 9)})", values + (values[-1],),
+            )
+        else:
+            columns = ("title", "category", "status", "body", "image_filename", "published", "segments", "updated_at")
+            assignments = ", ".join(f"{column} = {marker}" for column in columns)
+            db.execute(f"UPDATE projects SET {assignments} WHERE id = {marker}", values + (project_id,))
+
+
+def posts_for_project(project):
+    marker = "%s" if using_postgres() else "?"
+    with get_db() as db:
+        return db.execute(
+            f"SELECT * FROM posts WHERE published = TRUE AND LOWER(TRIM(category)) = LOWER({marker}) ORDER BY created_at DESC, id DESC",
+            (project["category"].strip(),),
+        ).fetchall()
+
+
 def create_post(title, category, body, image_filename, published, segments=None):
     timestamp = now_iso()
     segments_json = json.dumps(segments) if segments is not None else None
@@ -698,6 +761,7 @@ def inject_admin_state():
         "google_sign_in_enabled": google_sign_in_enabled(),
         "post_image_src": post_image_src,
         "post_segments": post_segments,
+        "project_states": PROJECT_STATES,
     }
 
 
@@ -732,6 +796,30 @@ def post_detail(post_id):
         return render_template("404.html"), 404
     comments = list_comments(post_id)
     return render_template("post.html", post=post, comments=comments)
+
+
+@app.route("/projects")
+def projects():
+    status = request.args.get("status", "ongoing")
+    if status not in PROJECT_STATES:
+        return render_template("404.html"), 404
+    return render_template("projects.html", projects=list_projects(status), selected_status=status)
+
+
+@app.route("/projects/<int:project_id>")
+def project_detail(project_id):
+    project = get_project(project_id, include_drafts=is_admin())
+    if project is None:
+        return render_template("404.html"), 404
+    return render_template("project.html", project=project, selected_status=project["status"])
+
+
+@app.route("/projects/<int:project_id>/posts")
+def project_posts(project_id):
+    project = get_project(project_id, include_drafts=is_admin())
+    if project is None:
+        return render_template("404.html"), 404
+    return render_template("home.html", posts=posts_for_project(project), project=project, selected_status=project["status"])
 
 
 @app.route("/post/<int:post_id>/comments", methods=["POST"])
@@ -789,6 +877,14 @@ def admin():
         return blocked
     posts = list_admin_posts()
     return render_template("admin.html", posts=posts)
+
+
+@app.route("/admin/projects")
+def admin_projects():
+    blocked = require_admin()
+    if blocked:
+        return blocked
+    return render_template("admin_projects.html", projects=list_projects(include_drafts=True))
 
 
 @app.route("/admin/login", methods=["GET", "POST"])
@@ -906,33 +1002,79 @@ def logout():
     return redirect(url_for("home"))
 
 
-def post_editor(post=None):
+def post_editor(post=None, is_project=False):
+    content_type = "project" if is_project else "post"
+    admin_endpoint = "admin_projects" if is_project else "admin"
     if request.method == "POST":
         title = request.form.get("title", "").strip()
-        category = request.form.get("category", "").strip() or "build log"
+        category = request.form.get("category", "").strip() or (title if is_project else "build log")
         published = request.form.get("published") == "on"
         try:
             if not title:
                 raise ValueError("Add a title before saving.")
+            status = request.form.get("status", "ongoing")
+            if is_project and status not in PROJECT_STATES:
+                raise ValueError("Choose ongoing, finished, or planned for the project state.")
             segments = read_post_segments(post)
             body = "\n\n".join(item["text"] for item in segments if item["type"] == "text")
             image_filename = next((item["image_filename"] for item in segments if item["type"] == "image"), None)
-            if post is None:
+            if is_project:
+                save_project(post["id"] if post else None, title, category, status, body, image_filename, published, segments)
+            elif post is None:
                 create_post(title, category, body, image_filename, published, segments)
             else:
                 update_post(post["id"], title, category, body, image_filename, published, segments)
         except ValueError as exc:
             return jsonify(error=str(exc)), 400
         except Exception:
-            app.logger.exception("Post save failed")
-            return jsonify(error="Could not save your post. Your segments are still here; please try again."), 500
-        flash("Post created." if post is None else "Post updated.", "ok")
-        return jsonify(redirect=url_for("admin"))
+            app.logger.exception("%s save failed", content_type.capitalize())
+            return jsonify(error=f"Could not save your {content_type}. Your segments are still here; please try again."), 500
+        flash(f"{content_type.capitalize()} {'created' if post is None else 'updated'}.", "ok")
+        return jsonify(redirect=url_for(admin_endpoint))
     editor_segments = [
         {**item, "image_src": post_image_src(item["image_filename"])} if item["type"] == "image" else item
         for item in post_segments(post)
     ]
-    return render_template("post_form.html", post=post, editor_segments=editor_segments)
+    return render_template("post_form.html", post=post, editor_segments=editor_segments,
+                           is_project=is_project, content_type=content_type, admin_endpoint=admin_endpoint)
+
+
+@app.route("/admin/projects/new", methods=["GET", "POST"])
+def new_project():
+    blocked = require_admin()
+    if blocked:
+        return blocked
+    return post_editor(is_project=True)
+
+
+@app.route("/admin/projects/<int:project_id>/edit", methods=["GET", "POST"])
+def edit_project(project_id):
+    blocked = require_admin()
+    if blocked:
+        return blocked
+    project = get_project(project_id, include_drafts=True)
+    if project is None:
+        return render_template("404.html"), 404
+    return post_editor(project, is_project=True)
+
+
+@app.route("/admin/projects/<int:project_id>/delete", methods=["POST"])
+def delete_project(project_id):
+    blocked = require_admin()
+    if blocked:
+        return blocked
+    if get_project(project_id, include_drafts=True) is None:
+        return render_template("404.html"), 404
+    marker = "%s" if using_postgres() else "?"
+    try:
+        with get_db() as db:
+            db.execute(f"DELETE FROM projects WHERE id = {marker}", (project_id,))
+    except Exception:
+        app.logger.exception("Project deletion failed")
+        flash("Could not delete the project. Please try again.", "warn")
+    else:
+        flash("Project deleted. Its posts are still available.", "ok")
+    return redirect(url_for("admin_projects"))
 
 
 @app.route("/admin/posts/new", methods=["GET", "POST"])

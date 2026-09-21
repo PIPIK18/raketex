@@ -1,13 +1,24 @@
 {% extends "base.html" %}
 
-{% block title %}RAKETEX - Build Log{% endblock %}
+{% block title %}{{ project.title ~ ' - Posts' if project else 'RAKETEX - Build Log' }}{% endblock %}
 
 {% block body %}
+  {% if project %}
+    {% include "project_tabs.html" %}
+    <section class="panel">
+      <h2>{{ project.title }}: posts</h2>
+      <p class="muted">Posts in {{ project.category }}</p>
+      <div class="row" style="margin-top: 12px;">
+        <a class="btn" href="{{ url_for('project_detail', project_id=project.id) }}">back to project</a>
+      </div>
+    </section>
+  {% else %}
   <section class="blog-head">
     <form method="get">
       <input name="q" type="text" value="{{ search_query or '' }}" placeholder="search posts" />
     </form>
   </section>
+  {% endif %}
 
   <section class="blog-list">
     {% if posts %}
@@ -27,7 +38,7 @@
       <div class="blog-entry">
         <div>
           <h2>No posts yet</h2>
-          <p class="blog-excerpt">Create the first post from the admin page.</p>
+          <p class="blog-excerpt">{% if project %}No published posts in {{ project.category }} yet.{% else %}Create the first post from the admin page.{% endif %}</p>
         </div>
       </div>
     {% endif %}

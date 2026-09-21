@@ -1,0 +1,5 @@
+<nav class="project-tabs" aria-label="Project states">
+  {% for state in project_states %}
+    <a class="btn{% if selected_status == state %} primary{% endif %}" href="{{ url_for('projects', status=state) }}" {% if selected_status == state %}aria-current="page"{% endif %}>{{ state }}</a>
+  {% endfor %}
+</nav>

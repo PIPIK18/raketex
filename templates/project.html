@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}{{ project.title }} - RAKETEX{% endblock %}
+{% block body %}
+  {% include "project_tabs.html" %}
+  <article class="panel">
+    <p class="blog-meta">{{ project.status }} | {{ project.category }}{% if not project.published %} | draft{% endif %}</p>
+    <h2>{{ project.title }}</h2>
+    {% with content=project %}{% include "content_segments.html" %}{% endwith %}
+    <div class="row" style="margin-top: 24px;">
+      <a class="btn primary" href="{{ url_for('project_posts', project_id=project.id) }}">view project posts</a>
+      <a class="btn" href="{{ url_for('projects', status=project.status) }}">back to projects</a>
+      {% if is_admin %}<a class="btn" href="{{ url_for('edit_project', project_id=project.id) }}">edit project</a>{% endif %}
+    </div>
+  </article>
+{% endblock %}

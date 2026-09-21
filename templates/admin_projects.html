@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Manage Projects - RAKETEX{% endblock %}
+{% block body %}
+  {% include "admin_tabs.html" %}
+  <section class="panel">
+    <div class="row" style="justify-content: space-between;">
+      <h2>Manage Projects</h2>
+      <a class="btn primary" href="{{ url_for('new_project') }}">new project</a>
+    </div>
+    {% if projects %}
+      <div class="grid">
+        {% for project in projects %}
+          <article class="admin-card">
+            {% if project.image_filename %}
+              <img class="post-image" src="{{ post_image_src(project.image_filename) }}" alt="" />
+            {% else %}
+              <div class="post-image"></div>
+            {% endif %}
+            <p class="muted">{{ project.status }} | {{ "published" if project.published else "draft" }}</p>
+            <h3>{{ project.title }}</h3>
+            <p class="muted">post category: {{ project.category }}</p>
+            <p>{{ project.updated_at[:10] }}</p>
+            <div class="row admin-card-actions">
+              <a class="btn" href="{{ url_for('project_detail', project_id=project.id) }}">view</a>
+              <a class="btn primary" href="{{ url_for('edit_project', project_id=project.id) }}">edit</a>
+              <form action="{{ url_for('delete_project', project_id=project.id) }}" method="post" style="margin:0;">
+                <button class="btn" type="submit">delete</button>
+              </form>
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="muted">No projects yet. Create a project introduction and choose its state.</p>
+    {% endif %}
+  </section>
+{% endblock %}

@@ -1,23 +1,34 @@
 {% extends "base.html" %}
-{% block title %}{{ "Edit" if post else "New" }} Post - RAKETEX{% endblock %}
+{% block title %}{{ "Edit" if post else "New" }} {{ content_type|capitalize }} - RAKETEX{% endblock %}
 {% block body %}
   <link rel="stylesheet" href="{{ url_for('asset_file', filename='post-editor.css') }}" />
   <section class="panel">
-    <h2>{{ "Edit" if post else "New" }} Post</h2>
-    <form id="post-editor" method="post" enctype="multipart/form-data">
+    <h2>{{ "Edit" if post else "New" }} {{ content_type|capitalize }}</h2>
+    <form id="post-editor" data-content-type="{{ content_type }}" method="post" enctype="multipart/form-data">
       <fieldset id="editor-fields">
         <div class="field">
-          <label for="title">title</label>
+          <label for="title">{{ 'project name' if is_project else 'title' }}</label>
           <input id="title" name="title" type="text" value="{{ post.title if post else '' }}" required />
         </div>
         <div class="field">
-          <label for="category">category</label>
-          <input id="category" name="category" type="text" value="{{ post.category if post else 'build log' }}" />
+          <label for="category">{{ 'post category' if is_project else 'category' }}</label>
+          <input id="category" name="category" type="text" value="{{ post.category if post else ('' if is_project else 'build log') }}" {% if is_project %}placeholder="Defaults to the project name" aria-describedby="category-help"{% endif %} />
+          {% if is_project %}<p id="category-help" class="muted">Posts with this category appear under this project. Leave blank to use the project name.</p>{% endif %}
         </div>
-        <h3 class="segments-heading">content</h3>
+        {% if is_project %}
+          <div class="field">
+            <label for="status">project state</label>
+            <select id="status" name="status" required>
+              {% for state in project_states %}
+                <option value="{{ state }}" {% if (post.status if post else 'ongoing') == state %}selected{% endif %}>{{ state }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        {% endif %}
+        <h3 class="segments-heading">{{ 'project introduction' if is_project else 'content' }}</h3>
         <p id="segment-help" class="muted">Add images and text below. Drag a segment by its handle to change the order, or use the arrow buttons.</p>
         <div id="segments" aria-describedby="segment-help"></div>
-        <p id="segments-empty" class="muted">Your post is empty. Add an image or some text to get started.</p>
+        <p id="segments-empty" class="muted">Your {{ content_type }} is empty. Add an image or some text to get started.</p>
         <div class="row segment-add">
           <button class="btn" type="button" data-add="image">+ add image</button>
           <button class="btn" type="button" data-add="text">+ add text</button>
@@ -28,12 +39,12 @@
         </label>
         <div class="row">
           <button id="save-post" class="btn primary" type="submit">save</button>
-          <a class="btn" href="{{ url_for('admin') }}">cancel</a>
+          <a class="btn" href="{{ url_for(admin_endpoint) }}">cancel</a>
         </div>
       </fieldset>
       <p id="editor-error" role="alert" hidden></p>
       <p id="editor-status" class="muted" role="status" aria-live="polite"></p>
-      <noscript>Enable JavaScript to add, rearrange, and save post segments.</noscript>
+      <noscript>Enable JavaScript to add, rearrange, and save segments.</noscript>
     </form>
   </section>
   <script id="initial-segments" type="application/json">{{ editor_segments|tojson }}</script>
