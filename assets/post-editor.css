@@ -1,0 +1,24 @@
+#editor-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
+.panel .segments-heading { margin-top: 24px; }
+#segments { display: grid; gap: 12px; margin-top: 16px; }
+.segment { border: 1px solid var(--line); background: var(--panel-2); padding: 14px; min-width: 0; }
+.segment.dragging { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); opacity: .8; }
+.segment-header { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+.segment-label { flex: 1; min-width: 80px; font-size: 14px; }
+.segment-tools { display: flex; gap: 6px; }
+.segment-control { border: 1px solid var(--line); background: #080d14; color: var(--ink); padding: 8px 12px; cursor: pointer; min-height: 40px; }
+.segment-control:hover, .segment-control:focus-visible { border-color: var(--accent); }
+.segment-control:disabled { opacity: .35; cursor: default; }
+.segment-handle { touch-action: none; user-select: none; cursor: grab; }
+.segment-handle:active { cursor: grabbing; }
+.segment-remove { color: var(--warn); }
+.segment .field { margin-bottom: 0; }
+.segment input[type="file"] { max-width: 100%; width: 100%; }
+.segment-add { margin-top: 16px; }
+#segments-empty { padding: 24px 12px; border: 1px dashed var(--line); text-align: center; }
+#editor-error { color: var(--warn); border: 1px solid var(--warn); padding: 12px; }
+#editor-fields:disabled { opacity: .65; }
+@media (max-width: 480px) {
+  .segment { padding: 10px; }
+  .segment-control { padding: 8px 10px; }
+}

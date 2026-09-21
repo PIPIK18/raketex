@@ -1,9 +1,10 @@
 import json
 import os
+import re
 import secrets
 import sqlite3
 import uuid
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -81,9 +82,10 @@ def get_db():
         return
 
     INSTANCE_DIR.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(DB_PATH) as conn:
+    with closing(sqlite3.connect(DB_PATH)) as conn:
         conn.row_factory = sqlite3.Row
-        yield conn
+        with conn:
+            yield conn
 
 
 def init_db():
@@ -176,7 +178,74 @@ def init_db():
                 """
             )
         ensure_comment_user_id_column(db)
+        ensure_post_segments_column(db)
     DB_INIT_DONE = True
+
+
+def ensure_post_segments_column(db):
+    if using_postgres():
+        db.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS segments TEXT")
+    else:
+        columns = db.execute("PRAGMA table_info(posts)").fetchall()
+        if not any(column["name"] == "segments" for column in columns):
+            db.execute("ALTER TABLE posts ADD COLUMN segments TEXT")
+
+
+def post_segments(post):
+    if post is None:
+        return []
+    if post["segments"] is not None:
+        return json.loads(post["segments"])
+    # Older posts displayed their image before their body.
+    segments = []
+    if post["image_filename"]:
+        segments.append({"type": "image", "image_filename": post["image_filename"]})
+    if post["body"]:
+        segments.append({"type": "text", "text": post["body"]})
+    return segments
+
+
+def read_post_segments(post=None):
+    try:
+        items = json.loads(request.form.get("segments", "[]"))
+    except (ValueError, TypeError) as exc:
+        raise ValueError("Could not read the post segments. Reload the editor and try again.") from exc
+    if not isinstance(items, list) or not 1 <= len(items) <= 100:
+        raise ValueError("Add between 1 and 100 image or text segments.")
+
+    existing_images = {item["image_filename"] for item in post_segments(post) if item["type"] == "image"}
+    segments = []
+    uploads = []
+    seen = set()
+    # Validate every segment before uploading any files.
+    for position, item in enumerate(items, 1):
+        if not isinstance(item, dict):
+            raise ValueError("Invalid post segment.")
+        segment_id = item.get("id")
+        if not isinstance(segment_id, str) or not re.fullmatch(r"[a-zA-Z0-9_-]{1,64}", segment_id) or segment_id in seen:
+            raise ValueError("Invalid or duplicate segment ID.")
+        seen.add(segment_id)
+        if item.get("type") == "text":
+            value = item.get("text", "")
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"Add text to segment {position}, or remove it.")
+            segments.append({"type": "text", "text": value.strip()})
+        elif item.get("type") == "image":
+            upload = request.files.get(f"image_{segment_id}")
+            image_ref = item.get("image_filename")
+            if upload and upload.filename:
+                if not image_is_allowed(upload.filename):
+                    raise ValueError(f"Segment {position}: use png, jpg, jpeg, gif or webp images.")
+                uploads.append((len(segments), upload))
+                image_ref = None
+            elif not isinstance(image_ref, str) or image_ref not in existing_images:
+                raise ValueError(f"Select an image for segment {position}, or remove it.")
+            segments.append({"type": "image", "image_filename": image_ref})
+        else:
+            raise ValueError("Only image and text segments are supported.")
+    for index, upload in uploads:
+        segments[index]["image_filename"] = save_uploaded_image(upload)
+    return segments
 
 
 def ensure_comment_user_id_column(db):
@@ -533,48 +602,50 @@ def list_admin_posts():
         return db.execute("SELECT * FROM posts ORDER BY created_at DESC").fetchall()
 
 
-def create_post(title, category, body, image_filename, published):
+def create_post(title, category, body, image_filename, published, segments=None):
     timestamp = now_iso()
+    segments_json = json.dumps(segments) if segments is not None else None
     with get_db() as db:
         if using_postgres():
             db.execute(
                 """
-                INSERT INTO posts (title, category, body, image_filename, published, created_at, updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO posts (title, category, body, image_filename, published, created_at, updated_at, segments)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 """,
-                (title, category, body, image_filename, published, timestamp, timestamp),
+                (title, category, body, image_filename, published, timestamp, timestamp, segments_json),
             )
             return
 
         db.execute(
             """
-            INSERT INTO posts (title, category, body, image_filename, published, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO posts (title, category, body, image_filename, published, created_at, updated_at, segments)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (title, category, body, image_filename, 1 if published else 0, timestamp, timestamp),
+            (title, category, body, image_filename, 1 if published else 0, timestamp, timestamp, segments_json),
         )
 
 
-def update_post(post_id, title, category, body, image_filename, published):
+def update_post(post_id, title, category, body, image_filename, published, segments=None):
+    segments_json = json.dumps(segments) if segments is not None else None
     with get_db() as db:
         if using_postgres():
             db.execute(
                 """
                 UPDATE posts
-                SET title = %s, category = %s, body = %s, image_filename = %s, published = %s, updated_at = %s
+                SET title = %s, category = %s, body = %s, image_filename = %s, published = %s, updated_at = %s, segments = %s
                 WHERE id = %s
                 """,
-                (title, category, body, image_filename, published, now_iso(), post_id),
+                (title, category, body, image_filename, published, now_iso(), segments_json, post_id),
             )
             return
 
         db.execute(
             """
             UPDATE posts
-            SET title = ?, category = ?, body = ?, image_filename = ?, published = ?, updated_at = ?
+            SET title = ?, category = ?, body = ?, image_filename = ?, published = ?, updated_at = ?, segments = ?
             WHERE id = ?
             """,
-            (title, category, body, image_filename, 1 if published else 0, now_iso(), post_id),
+            (title, category, body, image_filename, 1 if published else 0, now_iso(), segments_json, post_id),
         )
 
 
@@ -626,6 +697,7 @@ def inject_admin_state():
         "current_user_name": current_user_name(),
         "google_sign_in_enabled": google_sign_in_enabled(),
         "post_image_src": post_image_src,
+        "post_segments": post_segments,
     }
 
 
@@ -834,40 +906,41 @@ def logout():
     return redirect(url_for("home"))
 
 
+def post_editor(post=None):
+    if request.method == "POST":
+        title = request.form.get("title", "").strip()
+        category = request.form.get("category", "").strip() or "build log"
+        published = request.form.get("published") == "on"
+        try:
+            if not title:
+                raise ValueError("Add a title before saving.")
+            segments = read_post_segments(post)
+            body = "\n\n".join(item["text"] for item in segments if item["type"] == "text")
+            image_filename = next((item["image_filename"] for item in segments if item["type"] == "image"), None)
+            if post is None:
+                create_post(title, category, body, image_filename, published, segments)
+            else:
+                update_post(post["id"], title, category, body, image_filename, published, segments)
+        except ValueError as exc:
+            return jsonify(error=str(exc)), 400
+        except Exception:
+            app.logger.exception("Post save failed")
+            return jsonify(error="Could not save your post. Your segments are still here; please try again."), 500
+        flash("Post created." if post is None else "Post updated.", "ok")
+        return jsonify(redirect=url_for("admin"))
+    editor_segments = [
+        {**item, "image_src": post_image_src(item["image_filename"])} if item["type"] == "image" else item
+        for item in post_segments(post)
+    ]
+    return render_template("post_form.html", post=post, editor_segments=editor_segments)
+
+
 @app.route("/admin/posts/new", methods=["GET", "POST"])
 def new_post():
     blocked = require_admin()
     if blocked:
         return blocked
-    if request.method == "POST":
-        try:
-            image_filename = save_uploaded_image(request.files.get("image"))
-        except ValueError as exc:
-            flash(str(exc), "warn")
-            return render_template("post_form.html", post=None)
-        except Exception as exc:
-            app.logger.exception("Image upload failed")
-            flash(f"Image upload failed: {exc}", "warn")
-            return render_template("post_form.html", post=None)
-
-        title = request.form.get("title", "").strip()
-        body = request.form.get("body", "").strip()
-        category = request.form.get("category", "build log").strip() or "build log"
-        published = request.form.get("published") == "on"
-
-        if not title or not body:
-            flash("Title and body are required.", "warn")
-            return render_template("post_form.html", post=None)
-
-        try:
-            create_post(title, category, body, image_filename, published)
-        except Exception as exc:
-            app.logger.exception("Post creation failed")
-            flash(f"Post creation failed: {exc}", "warn")
-            return render_template("post_form.html", post=None)
-        flash("Post created.", "ok")
-        return redirect(url_for("admin"))
-    return render_template("post_form.html", post=None)
+    return post_editor()
 
 
 @app.route("/admin/posts/<int:post_id>/edit", methods=["GET", "POST"])
@@ -878,38 +951,7 @@ def edit_post(post_id):
     post = get_post(post_id, include_drafts=True)
     if post is None:
         return render_template("404.html"), 404
-
-    if request.method == "POST":
-        try:
-            new_image = save_uploaded_image(request.files.get("image"))
-        except ValueError as exc:
-            flash(str(exc), "warn")
-            return render_template("post_form.html", post=post)
-        except Exception as exc:
-            app.logger.exception("Image upload failed")
-            flash(f"Image upload failed: {exc}", "warn")
-            return render_template("post_form.html", post=post)
-
-        image_filename = new_image or post["image_filename"]
-        title = request.form.get("title", "").strip()
-        body = request.form.get("body", "").strip()
-        category = request.form.get("category", "build log").strip() or "build log"
-        published = request.form.get("published") == "on"
-
-        if not title or not body:
-            flash("Title and body are required.", "warn")
-            return render_template("post_form.html", post=post)
-
-        try:
-            update_post(post_id, title, category, body, image_filename, published)
-        except Exception as exc:
-            app.logger.exception("Post update failed")
-            flash(f"Post update failed: {exc}", "warn")
-            return render_template("post_form.html", post=post)
-        flash("Post updated.", "ok")
-        return redirect(url_for("admin"))
-
-    return render_template("post_form.html", post=post)
+    return post_editor(post)
 
 
 @app.route("/admin/posts/<int:post_id>/delete", methods=["POST"])

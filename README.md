@@ -21,6 +21,38 @@ on subsequent page loads. This measures new traffic from installation onward.
 
 RAKETEX is a Flask app. It is set up to run locally with SQLite/local uploads and on Vercel with Postgres/Vercel Blob for persistent shared posts and images.
 
+## Post editor
+
+In **New Post**, enter a title and category, then use **add image** or **add text**
+to build the post. Each image has its own upload and preview. Drag the handle at
+the left of a segment to reorder it (mouse or touch), or use the up/down buttons.
+Focused drag handles also support the keyboard arrow keys. **Remove** removes
+that segment from the post. Save publishes the segments in their displayed order;
+uncheck **published** to save a draft.
+
+Existing posts open as an image segment followed by a text segment. The app adds
+the `posts.segments` column automatically on startup for SQLite and Postgres;
+existing content is retained. The first image becomes the list thumbnail, and
+all text segments contribute to search and excerpts. Posts may contain only
+images or only text, with up to 100 segments. The existing 8 MiB total request
+limit still applies, and the hosting platform may impose a smaller limit.
+Failed saves keep the editor content and file selections available for retry.
+
+Run the isolated backend regression tests with:
+
+```powershell
+python -m unittest discover -s tests -v
+```
+
+Optional browser checks require Playwright and an installed Chrome browser:
+
+```powershell
+python -m pip install playwright
+python tests/browser_post_editor.py
+```
+
+Both suites use temporary databases and uploads, leaving real posts untouched.
+
 ## Local run
 
 ```powershell
