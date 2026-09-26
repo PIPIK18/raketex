@@ -57,10 +57,28 @@
       z-index: 1;
       box-shadow: none;
     }
-    .top { margin-top: 18px; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px; }
-    .logo { grid-column: 2; margin: 0; font-family: "Teko", sans-serif; letter-spacing: 1px; font-size: 92px; line-height: .78; text-decoration: none; text-align: center; }
-    .menu { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
-    .btn, .menu a, .menu button {
+    .top { margin: 18px 0 28px; }
+    .menu { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 28px; align-items: center; }
+    .logo { margin: 0; font-family: "Teko", sans-serif; letter-spacing: 1px; font-size: 76px; line-height: 1; text-decoration: none; text-align: center; }
+    .nav-group { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 26px; }
+    .nav-right { justify-content: flex-end; }
+    .nav-group form { margin: 0; }
+    .nav-link { display: inline-block; position: relative; border: 0; background: none; color: var(--ink); padding: 12px 0; font-size: 14px; font-weight: 700; letter-spacing: 1.2px; line-height: 1.4; text-transform: uppercase; text-decoration: none; cursor: pointer; transition: color .2s ease, transform .2s ease; overflow-wrap: anywhere; }
+    .nav-link::after { content: ""; position: absolute; left: 0; right: 0; bottom: 5px; height: 2px; background: var(--accent); transform: scaleX(0); transform-origin: left; transition: transform .25s ease; }
+    .nav-link:hover, .nav-link:focus-visible, .nav-link.active { color: var(--accent); }
+    .nav-link:hover, .nav-link:focus-visible { transform: translateY(-2px); }
+    .nav-link:hover::after, .nav-link:focus-visible::after, .nav-link.active::after { transform: scaleX(1); }
+    .nav-link:focus-visible, .logo:focus-visible { outline: 2px solid var(--accent); outline-offset: 5px; }
+    @media (max-width: 960px) {
+      .menu { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 24px; }
+      .logo { order: -1; flex-basis: 100%; font-size: clamp(48px, 16vw, 76px); }
+      .nav-group { justify-content: center; gap: 8px 22px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .nav-link, .nav-link::after { transition: none; }
+      .nav-link:hover, .nav-link:focus-visible { transform: none; }
+    }
+    .btn {
       border: 0;
       background: transparent;
       color: var(--ink);
@@ -73,7 +91,7 @@
       clip-path: polygon(13px 0, calc(100% - 13px) 0, 100% 50%, calc(100% - 13px) 100%, 13px 100%, 0 50%);
       transition: background .16s ease, color .16s ease;
     }
-    .btn::before, .menu a::before, .menu button::before {
+    .btn::before {
       content: "";
       position: absolute;
       inset: 0;
@@ -81,7 +99,7 @@
       background: var(--line);
       clip-path: inherit;
     }
-    .btn::after, .menu a::after, .menu button::after {
+    .btn::after {
       content: "";
       position: absolute;
       inset: 1px;
@@ -89,10 +107,10 @@
       background: #0b121c;
       clip-path: inherit;
     }
-    .btn.primary, .menu .active { color: #fff; }
-    .btn.primary::before, .menu .active::before, .menu a:hover::before, .menu button:hover::before { background: var(--accent); }
-    .btn.primary::after, .menu .active::after { background: rgba(248, 140, 61, .22); }
-    .btn:hover, .menu a:hover, .menu button:hover { color: #fff; }
+    .btn.primary { color: #fff; }
+    .btn.primary::before { background: var(--accent); }
+    .btn.primary::after { background: rgba(248, 140, 61, .22); }
+    .btn:hover { color: #fff; }
     .hero {
       margin-top: 10px;
       border: 1px solid var(--line);
@@ -221,6 +239,16 @@
     .post-body { white-space: pre-wrap; line-height: 1.65; color: #d9e0e8; }
     .post-segments { display: grid; gap: 20px; overflow-wrap: anywhere; }
     .post-segments .post-image { margin: 0; }
+    .post-video { display: block; width: 100%; max-height: 640px; background: #05070b; border: 1px solid var(--line); }
+    .contact-intro { white-space: pre-wrap; line-height: 1.65; overflow-wrap: anywhere; }
+    .contact-links { display: grid; gap: 12px; margin-top: 24px; }
+    .contact-link { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 22px; border: 1px solid var(--line); background: var(--panel-2); text-decoration: none; overflow-wrap: anywhere; }
+    .contact-link:hover, .contact-link:focus-visible { border-color: var(--accent); color: var(--accent); }
+    .contact-link strong { display: block; margin-bottom: 6px; }
+    .contact-link small { color: var(--muted); }
+    .contact-link > span:first-child { min-width: 0; }
+    .contact-editor-row { border: 1px solid var(--line); padding: 16px; margin: 12px 0; }
+    .form-error { color: var(--warn); }
     .comments-block {
       margin-top: 22px;
       padding-top: 16px;
@@ -364,9 +392,6 @@
     .account-create-links a:hover { color: var(--accent); }
 
     @media (max-width: 780px) {
-      .top { grid-template-columns: minmax(0, 1fr); }
-      .logo { grid-column: auto; font-size: clamp(48px, 18vw, 72px); }
-      .menu { justify-content: flex-start; }
       .hero h1 { font-size: 54px; }
       .blog-head { grid-template-columns: 1fr; }
       .blog-entry { grid-template-columns: 1fr; }
@@ -377,27 +402,23 @@
 <body>
   <main class="page">
     <header class="top">
-      <a class="logo" href="{{ url_for('home') }}">RAKETEX</a>
-      <nav class="menu">
-        {% if is_admin %}
-          <form action="{{ url_for('logout') }}" method="post" style="margin:0;">
-            <button type="submit">logout</button>
-          </form>
-          <a class="{% if request.endpoint in ['home', 'post_detail'] %}active{% endif %}" href="{{ url_for('home') }}">posts</a>
-          <a class="{% if request.endpoint in ['projects', 'project_detail', 'project_posts'] %}active{% endif %}" href="{{ url_for('projects') }}">projects</a>
-          <a class="{% if request.endpoint in ['admin', 'new_post', 'edit_post', 'admin_projects', 'new_project', 'edit_project'] %}active{% endif %}" href="{{ url_for('admin') }}">admin</a>
-        {% elif is_signed_in %}
-          <form action="{{ url_for('logout') }}" method="post" style="margin:0;">
-            <button type="submit">logout</button>
-          </form>
-          <a class="{% if request.endpoint in ['home', 'post_detail'] %}active{% endif %}" href="{{ url_for('home') }}">posts</a>
-          <a class="{% if request.endpoint in ['projects', 'project_detail', 'project_posts'] %}active{% endif %}" href="{{ url_for('projects') }}">projects</a>
-          <a class="active" href="{{ url_for('login') }}">{{ current_user_name }}</a>
-        {% else %}
-          <a class="{% if request.endpoint in ['home', 'post_detail'] %}active{% endif %}" href="{{ url_for('home') }}">posts</a>
-          <a class="{% if request.endpoint in ['projects', 'project_detail', 'project_posts'] %}active{% endif %}" href="{{ url_for('projects') }}">projects</a>
-          <a class="{% if request.endpoint in ['login', 'google_login', 'google_callback'] %}active{% endif %}" href="{{ url_for('login') }}">user</a>
-        {% endif %}
+      <nav class="menu" aria-label="Main navigation">
+        <div class="nav-group nav-left">
+          <a class="nav-link{% if request.endpoint in ['home', 'post_detail'] %} active{% endif %}" href="{{ url_for('home') }}">posts</a>
+          <a class="nav-link{% if request.endpoint in ['projects', 'project_detail', 'project_posts'] %} active{% endif %}" href="{{ url_for('projects') }}">projects</a>
+        </div>
+        <a class="logo" href="{{ url_for('home') }}" aria-label="RAKETEX home">RAKETEX</a>
+        <div class="nav-group nav-right">
+          <a class="nav-link{% if request.endpoint == 'contact' %} active{% endif %}" href="{{ url_for('contact') }}">contact</a>
+          {% if is_admin %}
+            <a class="nav-link{% if request.endpoint in ['admin', 'new_post', 'edit_post', 'admin_projects', 'new_project', 'edit_project', 'edit_contact'] %} active{% endif %}" href="{{ url_for('admin') }}">admin</a>
+          {% else %}
+            <a class="nav-link{% if request.endpoint in ['login', 'google_login', 'google_callback'] %} active{% endif %}" href="{{ url_for('login') }}">{{ current_user_name if is_signed_in else 'user' }}</a>
+          {% endif %}
+          {% if is_signed_in %}
+            <form action="{{ url_for('logout') }}" method="post"><button class="nav-link" type="submit">logout</button></form>
+          {% endif %}
+        </div>
       </nav>
     </header>
 

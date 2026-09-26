@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Contact - RAKETEX{% endblock %}
+{% block body %}
+  <section class="panel">
+    <div class="row" style="justify-content: space-between;">
+      <h2>Contact</h2>
+      {% if is_admin %}<a class="btn" href="{{ url_for('edit_contact') }}">edit contact</a>{% endif %}
+    </div>
+    {% if contact.intro %}<p class="contact-intro">{{ contact.intro }}</p>{% endif %}
+    <div class="contact-links">
+      {% for link in contact.links %}
+        <a class="contact-link" href="{{ link.url }}" {% if link.url.startswith('https://') or link.url.startswith('http://') %}target="_blank" rel="noopener noreferrer"{% endif %}>
+          <span><strong>{{ link.label }}</strong><small>{{ link.url }}</small></span>
+          <span aria-hidden="true">&#8599;</span>
+        </a>
+      {% else %}
+        <p class="muted">Contact links will appear here soon.</p>
+      {% endfor %}
+    </div>
+  </section>
+{% endblock %}

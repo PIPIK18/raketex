@@ -87,6 +87,68 @@ def check_projects(page, origin):
     print("PASS: project creation, reusable editor, state changes, category-linked posts, deletion, visitor navigation, and responsive layouts")
 
 
+def check_video_contact_navigation(page, origin):
+    cookie = site.app.session_interface.get_signing_serializer(site.app).dumps({"is_admin": True})
+    page.context.add_cookies([{"name": "session", "value": cookie, "url": origin}])
+    page.set_viewport_size({"width": 1280, "height": 1000})
+    page.goto(origin + "/admin/posts/new")
+    # One-second VP8 fixture generated with ffmpeg; no network or encoder needed at test time.
+    clip = (Path(__file__).parent / "fixtures" / "clip.webm").read_bytes()
+    page.locator("#title").fill("Video launch test")
+    page.locator("[data-add='video']").click()
+    page.locator("input[type='file']").set_input_files({"name": "launch.webm", "mimeType": "video/webm", "buffer": bytes(clip)})
+    page.wait_for_function("document.querySelector('video').readyState >= 1 || document.querySelector('video').error")
+    assert page.locator("video").evaluate("video => !video.error"), (len(clip), page.locator("video").evaluate("video => ({src: video.src, error: video.error?.message})"))
+    page.locator("[data-add='text']").click()
+    page.locator("textarea").fill("Video description")
+    page.locator(".segment-handle").last.focus()
+    page.keyboard.press("ArrowUp")
+    page.locator("#save-post").click()
+    page.wait_for_url(origin + "/admin")
+    post = next(p for p in site.list_admin_posts() if p["title"] == "Video launch test")
+    page.goto(origin + f'/post/{post["id"]}')
+    page.wait_for_function("document.querySelector('video').readyState >= 1")
+    page.locator("video").evaluate("video => video.play()")
+    page.wait_for_function("document.querySelector('video').currentTime > 0")
+    page.locator("video").evaluate("video => video.pause()")
+    page.goto(origin + f'/admin/posts/{post["id"]}/edit')
+    page.wait_for_function("document.querySelector('video').readyState >= 1")
+    assert page.locator(".segment").count() == 2
+
+    page.locator(".menu").get_by_role("link", name="contact", exact=True).click()
+    page.get_by_role("link", name="edit contact", exact=True).click()
+    page.locator("#intro").fill("Get in touch with RAKETEX.")
+    for label, url in [("Website", "https://example.com/raketex"), ("Email", "mailto:hello@example.com")]:
+        page.get_by_role("button", name="+ add link", exact=True).click()
+        page.locator("input[name='link_label']").last.fill(label)
+        page.locator("input[name='link_url']").last.fill(url)
+    page.get_by_role("button", name="save contact", exact=True).click()
+    page.wait_for_url(origin + "/contact")
+    assert page.locator(".contact-link").count() == 2
+    assert page.locator(".contact-link").last.get_attribute("href") == "mailto:hello@example.com"
+    logo = page.locator(".logo").bounding_box()
+    left = page.locator(".nav-left").bounding_box()
+    right = page.locator(".nav-right").bounding_box()
+    assert left["x"] + left["width"] <= logo["x"] < right["x"]
+    assert page.locator(".nav-link").first.evaluate("e => getComputedStyle(e).clipPath") == "none"
+    page.screenshot(path=str(Path(tempfile.gettempdir()) / "raketex-contact-desktop.png"), full_page=True)
+    page.emulate_media(reduced_motion="reduce")
+    assert page.locator(".nav-link").first.evaluate("e => getComputedStyle(e).transitionDuration") == "0s"
+    page.emulate_media(reduced_motion="no-preference")
+    for width in [800, 390, 320]:
+        page.set_viewport_size({"width": width, "height": 844})
+        assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth"), width
+        assert page.locator(".menu").get_by_role("link", name="contact", exact=True).is_visible()
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.screenshot(path=str(Path(tempfile.gettempdir()) / "raketex-contact-mobile.png"), full_page=True)
+    page.get_by_role("link", name="edit contact", exact=True).click()
+    page.get_by_role("button", name="remove link", exact=True).first.click()
+    page.get_by_role("button", name="save contact", exact=True).click()
+    page.wait_for_url(origin + "/contact")
+    assert page.locator(".contact-link").count() == 1
+    print("PASS: real video upload, playback and reopen; Contact editing; centered text navigation, mobile layout, reduced motion")
+
+
 def main():
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
@@ -177,6 +239,7 @@ def main():
                     assert page.locator(".post-segments > *").evaluate_all("items => items.map(i => i.tagName)") == ["IMG", "DIV", "DIV"]
                     assert page.locator(".post-body").all_text_contents() == ["Opening text", "Closing text"]
                     check_projects(page, origin)
+                    check_video_contact_navigation(page, origin)
                     assert not errors, errors
                     browser.close()
                     print("PASS: desktop drag, mobile touch drag, keyboard reorder, previews, failed-save recovery, persistence, removal, and public rendering")

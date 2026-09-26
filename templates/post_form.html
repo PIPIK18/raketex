@@ -4,7 +4,7 @@
   <link rel="stylesheet" href="{{ url_for('asset_file', filename='post-editor.css') }}" />
   <section class="panel">
     <h2>{{ "Edit" if post else "New" }} {{ content_type|capitalize }}</h2>
-    <form id="post-editor" data-content-type="{{ content_type }}" method="post" enctype="multipart/form-data">
+    <form id="post-editor" data-content-type="{{ content_type }}" data-upload-limit="{{ upload_limit_mb }}" method="post" enctype="multipart/form-data">
       <fieldset id="editor-fields">
         <div class="field">
           <label for="title">{{ 'project name' if is_project else 'title' }}</label>
@@ -26,11 +26,13 @@
           </div>
         {% endif %}
         <h3 class="segments-heading">{{ 'project introduction' if is_project else 'content' }}</h3>
-        <p id="segment-help" class="muted">Add images and text below. Drag a segment by its handle to change the order, or use the arrow buttons.</p>
+        <p id="segment-help" class="muted">Add images, videos, and text below. Drag a segment by its handle to change the order, or use the arrow buttons.</p>
+        <p class="muted">Videos: MP4, WebM, or OGV. Maximum combined upload: {{ upload_limit_mb }} MiB per save. MP4 with H.264 video works in most browsers.</p>
         <div id="segments" aria-describedby="segment-help"></div>
-        <p id="segments-empty" class="muted">Your {{ content_type }} is empty. Add an image or some text to get started.</p>
+        <p id="segments-empty" class="muted">Your {{ content_type }} is empty. Add an image, video, or some text to get started.</p>
         <div class="row segment-add">
           <button class="btn" type="button" data-add="image">+ add image</button>
+          <button class="btn" type="button" data-add="video">+ add video</button>
           <button class="btn" type="button" data-add="text">+ add text</button>
         </div>
         <label class="row" style="margin: 16px 0;">

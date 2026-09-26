@@ -20,7 +20,7 @@
     const items = cards();
     document.getElementById("segments-empty").hidden = items.length > 0;
     items.forEach((card, index) => {
-      const label = `${index + 1}. ${card.dataset.type === "image" ? "Image" : "Text"}`;
+      const label = `${index + 1}. ${card.dataset.type[0].toUpperCase() + card.dataset.type.slice(1)}`;
       card.querySelector(".segment-label").textContent = label;
       card.querySelector("[data-action='up']").disabled = index === 0;
       card.querySelector("[data-action='down']").disabled = index === items.length - 1;
@@ -47,7 +47,7 @@
     card.className = "segment";
     card.dataset.id = id;
     card.dataset.type = item.type;
-    card.dataset.image = item.image_filename || "";
+    card.dataset.image = item.image_filename || item.video_filename || "";
     card.setAttribute("aria-labelledby", `${id}-label`);
     // Only static markup is inserted here; post content is assigned as text/value.
     card.innerHTML = `<div class="segment-header">
@@ -62,19 +62,25 @@
     const field = card.querySelector(".field");
     const label = document.createElement("label");
     label.htmlFor = `${id}-content`;
-    label.textContent = item.type === "image" ? "image" : "text";
-    const input = document.createElement(item.type === "image" ? "input" : "textarea");
+    label.textContent = item.type;
+    const input = document.createElement(item.type === "text" ? "textarea" : "input");
     input.id = label.htmlFor;
     input.required = true;
     field.append(label, input);
-    if (item.type === "image") {
+    if (item.type !== "text") {
       input.type = "file";
-      input.name = `image_${id}`;
-      input.accept = ".png,.jpg,.jpeg,.gif,.webp";
-      input.required = !item.image_filename;
-      const preview = document.createElement("img");
+      input.name = `${item.type}_${id}`;
+      input.accept = item.type === "video" ? ".mp4,.webm,.ogv" : ".png,.jpg,.jpeg,.gif,.webp";
+      input.required = !card.dataset.image;
+      const preview = document.createElement(item.type === "video" ? "video" : "img");
+      if (item.type === "video") {
+        preview.controls = true;
+        preview.playsInline = true;
+        preview.preload = "metadata";
+      }
       preview.className = "image-preview";
-      preview.alt = "Segment image preview";
+      if (item.type === "image") preview.alt = "Segment image preview";
+      else preview.setAttribute("aria-label", "Segment video preview");
       preview.draggable = false;
       if (item.image_src) {
         preview.src = item.image_src;
@@ -97,7 +103,7 @@
     refresh();
     if (focus) {
       input.focus();
-      announce(`${item.type === "image" ? "Image" : "Text"} segment added.`);
+      announce(`${item.type[0].toUpperCase() + item.type.slice(1)} segment added.`);
     }
   }
 
@@ -191,20 +197,26 @@
     const segments = cards().map((card) => ({
       id: card.dataset.id,
       type: card.dataset.type,
-      ...(card.dataset.type === "text" ? {text: card.querySelector("textarea").value} : {image_filename: card.dataset.image}),
+      ...(card.dataset.type === "text" ? {text: card.querySelector("textarea").value} : {[`${card.dataset.type}_filename`]: card.dataset.image}),
     }));
     if (!segments.length) {
-      showError("Add an image or text segment before saving.");
+      showError("Add an image, video, or text segment before saving.");
       return;
     }
     const data = new FormData(form);
     data.set("segments", JSON.stringify(segments));
+    const uploadBytes = Array.from(data.values()).reduce((total, value) => total + (value instanceof File ? value.size : new Blob([value]).size), 0);
+    const limit = Number(form.dataset.uploadLimit) * 1024 * 1024;
+    if (uploadBytes + 65536 > limit) {
+      showError(`The selected files exceed the ${form.dataset.uploadLimit} MiB upload limit. Use smaller files and try again.`);
+      return;
+    }
     fields.disabled = true;
     announce(`Saving ${contentType}...`);
     try {
       const response = await fetch(form.action, {method: "POST", body: data, headers: {Accept: "application/json"}});
       if (response.redirected) throw new Error(`Your session has expired. Sign in again in another tab, then save your ${contentType} here.`);
-      if (response.status === 413) throw new Error("The selected images are too large to save together. Use smaller images and try again.");
+      if (response.status === 413) throw new Error("The selected files are too large to save together. Use smaller files and try again.");
       if (!response.headers.get("content-type")?.includes("application/json")) throw new Error(`Could not save your ${contentType}. Please try again; your segments are still here.`);
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || `Could not save your ${contentType}. Please try again.`);

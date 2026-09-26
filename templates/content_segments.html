@@ -2,6 +2,10 @@
   {% for segment in post_segments(content) %}
     {% if segment.type == 'image' %}
       <img class="post-image" src="{{ post_image_src(segment.image_filename) }}" alt="" loading="lazy" />
+    {% elif segment.type == 'video' %}
+      <video class="post-video" controls playsinline preload="metadata" src="{{ post_image_src(segment.video_filename) }}">
+        Your browser cannot play this video. <a href="{{ post_image_src(segment.video_filename) }}">Download the video</a>.
+      </video>
     {% else %}
       <div class="post-body">{{ segment.text }}</div>
     {% endif %}

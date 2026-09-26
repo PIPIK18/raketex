@@ -23,8 +23,10 @@ RAKETEX is a Flask app. It is set up to run locally with SQLite/local uploads an
 
 ## Post editor
 
-In **New Post**, enter a title and category, then use **add image** or **add text**
-to build the post. Each image has its own upload and preview. Drag the handle at
+In **New Post**, enter a title and category, then use **add image**, **add video**,
+or **add text** to build the post. Images and videos have their own uploads and
+previews. Videos support MP4, WebM, and OGV, with playback controls on the public
+page. Use browser-compatible encoding (such as H.264 in MP4). Drag the handle at
 the left of a segment to reorder it (mouse or touch), or use the up/down buttons.
 Focused drag handles also support the keyboard arrow keys. **Remove** removes
 that segment from the post. Save publishes the segments in their displayed order;
@@ -34,8 +36,13 @@ Existing posts open as an image segment followed by a text segment. The app adds
 the `posts.segments` column automatically on startup for SQLite and Postgres;
 existing content is retained. The first image becomes the list thumbnail, and
 all text segments contribute to search and excerpts. Posts may contain only
-images or only text, with up to 100 segments. The existing 8 MiB total request
-limit still applies, and the hosting platform may impose a smaller limit.
+images, videos, or text, with up to 100 segments. Local uploads allow up to
+100 MiB per save. On Vercel the app uses a 4 MiB combined request limit to stay
+below the platform's [4.5 MB function payload limit](https://vercel.com/docs/functions/limitations).
+This server-upload flow supports short/compressed videos on Vercel; larger hosted
+uploads would require a direct-to-storage upload flow. The editor shows the limit
+and checks the combined size before submitting. Existing saved media is reused
+when reordering or editing a post, so it does not need to be uploaded again.
 Failed saves keep the editor content and file selections available for retry.
 
 Run the isolated backend regression tests with:
@@ -74,6 +81,17 @@ or any posts; edit the post category separately if needed.
 The `projects` table is created automatically for SQLite and Postgres when the
 app starts. The browser checks also exercise project creation, state changes,
 category links, deletion, and responsive layouts.
+
+## Contact and navigation
+
+**Contact** is available in the main navigation. Use **Admin → Edit contact**
+to add an optional introduction and up to 30 labeled links, or edit/remove links.
+Supported addresses start with `https://`, `http://`, `mailto:`, or `tel:`.
+Changes are saved to the database and appear on the public Contact page.
+
+The header places uppercase text navigation on either side of the centered
+RAKETEX logo, with animated underlines and hover movement. On smaller screens,
+links wrap below the logo. Reduced-motion preferences disable the animation.
 
 ## Local run
 

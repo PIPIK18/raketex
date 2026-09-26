@@ -1,4 +1,5 @@
 <nav class="row section-heading" aria-label="Admin sections">
   <a class="btn{% if request.endpoint == 'admin' %} primary{% endif %}" href="{{ url_for('admin') }}">manage posts</a>
   <a class="btn{% if request.endpoint == 'admin_projects' %} primary{% endif %}" href="{{ url_for('admin_projects') }}">manage projects</a>
+  <a class="btn{% if request.endpoint == 'edit_contact' %} primary{% endif %}" href="{{ url_for('edit_contact') }}">edit contact</a>
 </nav>

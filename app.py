@@ -35,6 +35,7 @@ DB_PATH = INSTANCE_DIR / "raketex.db"
 DATABASE_URL = os.environ.get("DATABASE_URL") or os.environ.get("POSTGRES_URL")
 BLOB_READ_WRITE_TOKEN = os.environ.get("BLOB_READ_WRITE_TOKEN")
 ALLOWED_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp"}
+VIDEO_MIME_TYPES = {"mp4": "video/mp4", "webm": "video/webm", "ogv": "video/ogg"}
 DB_INIT_DONE = False
 PROJECT_STATES = ("ongoing", "finished", "planned")
 PRIVATE_BLOB_PREFIX = "blob-private:"
@@ -48,7 +49,7 @@ GOOGLE_USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("RAKETEX_SECRET_KEY", "dev-change-this-secret")
-app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024
+app.config["MAX_CONTENT_LENGTH"] = (4 if os.environ.get("VERCEL") else 100) * 1024 * 1024
 
 
 def now_iso():
@@ -180,6 +181,7 @@ def init_db():
             )
         ensure_comment_user_id_column(db)
         ensure_post_segments_column(db)
+        db.execute("CREATE TABLE IF NOT EXISTS site_settings (name TEXT PRIMARY KEY, value TEXT NOT NULL)")
         project_id_type = "BIGSERIAL PRIMARY KEY" if using_postgres() else "INTEGER PRIMARY KEY AUTOINCREMENT"
         db.execute(f"""
             CREATE TABLE IF NOT EXISTS projects (
@@ -227,9 +229,10 @@ def read_post_segments(post=None):
     except (ValueError, TypeError) as exc:
         raise ValueError("Could not read the segments. Reload the editor and try again.") from exc
     if not isinstance(items, list) or not 1 <= len(items) <= 100:
-        raise ValueError("Add between 1 and 100 image or text segments.")
+        raise ValueError("Add between 1 and 100 image, video, or text segments.")
 
     existing_images = {item["image_filename"] for item in post_segments(post) if item["type"] == "image"}
+    existing_videos = {item["video_filename"] for item in post_segments(post) if item["type"] == "video"}
     segments = []
     uploads = []
     seen = set()
@@ -246,21 +249,23 @@ def read_post_segments(post=None):
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"Add text to segment {position}, or remove it.")
             segments.append({"type": "text", "text": value.strip()})
-        elif item.get("type") == "image":
-            upload = request.files.get(f"image_{segment_id}")
-            image_ref = item.get("image_filename")
+        elif item.get("type") in {"image", "video"}:
+            media_type = item["type"]
+            reference_key = f"{media_type}_filename"
+            upload = request.files.get(f"{media_type}_{segment_id}")
+            image_ref = item.get(reference_key)
             if upload and upload.filename:
-                if not image_is_allowed(upload.filename):
-                    raise ValueError(f"Segment {position}: use png, jpg, jpeg, gif or webp images.")
+                validate_media_filename(upload.filename, media_type)
                 uploads.append((len(segments), upload))
                 image_ref = None
-            elif not isinstance(image_ref, str) or image_ref not in existing_images:
-                raise ValueError(f"Select an image for segment {position}, or remove it.")
-            segments.append({"type": "image", "image_filename": image_ref})
+            elif not isinstance(image_ref, str) or image_ref not in (existing_images if media_type == "image" else existing_videos):
+                raise ValueError(f"Select a {media_type} for segment {position}, or remove it.")
+            segments.append({"type": media_type, reference_key: image_ref})
         else:
-            raise ValueError("Only image and text segments are supported.")
+            raise ValueError("Only image, video, and text segments are supported.")
     for index, upload in uploads:
-        segments[index]["image_filename"] = save_uploaded_image(upload)
+        media_type = segments[index]["type"]
+        segments[index][f"{media_type}_filename"] = save_uploaded_image(upload) if media_type == "image" else save_uploaded_media(upload, "video")
     return segments
 
 
@@ -383,10 +388,21 @@ def blob_result_value(blob, key):
 
 
 def save_uploaded_image(file_storage):
+    return save_uploaded_media(file_storage, "image")
+
+
+def validate_media_filename(filename, media_type):
+    extension = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    if media_type == "image" and extension not in ALLOWED_IMAGE_EXTENSIONS:
+        raise ValueError("Use png, jpg, jpeg, gif or webp images.")
+    if media_type == "video" and extension not in VIDEO_MIME_TYPES:
+        raise ValueError("Use MP4, WebM, or OGV videos.")
+
+
+def save_uploaded_media(file_storage, media_type):
     if not file_storage or file_storage.filename == "":
         return None
-    if not image_is_allowed(file_storage.filename):
-        raise ValueError("Use png, jpg, jpeg, gif or webp images.")
+    validate_media_filename(file_storage.filename, media_type)
 
     original_name = secure_filename(file_storage.filename)
     suffix = Path(original_name).suffix.lower()
@@ -397,7 +413,7 @@ def save_uploaded_image(file_storage):
 
         pathname = f"uploads/{filename}"
         content = file_storage.read()
-        content_type = file_storage.mimetype or None
+        content_type = VIDEO_MIME_TYPES.get(suffix.lstrip("."), file_storage.mimetype or None)
         client = BlobClient()
 
         try:
@@ -806,6 +822,61 @@ def projects():
     return render_template("projects.html", projects=list_projects(status), selected_status=status)
 
 
+def contact_content():
+    with get_db() as db:
+        row = db.execute("SELECT value FROM site_settings WHERE name = 'contact'").fetchone()
+    return json.loads(row["value"]) if row else {"intro": "", "links": []}
+
+
+def validate_contact_link(url):
+    if any(ord(char) < 32 for char in url) or len(url) > 2048:
+        return False
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme in {"https", "http"}:
+            return bool(parsed.hostname) and not any(char.isspace() for char in url)
+        return parsed.scheme in {"mailto", "tel"} and bool(parsed.path.strip())
+    except ValueError:
+        return False
+
+
+@app.route("/contact")
+def contact():
+    return render_template("contact.html", contact=contact_content())
+
+
+@app.route("/admin/contact", methods=["GET", "POST"])
+def edit_contact():
+    blocked = require_admin()
+    if blocked:
+        return blocked
+    content = contact_content()
+    error = None
+    if request.method == "POST":
+        labels = request.form.getlist("link_label")
+        urls = request.form.getlist("link_url")
+        content = {"intro": request.form.get("intro", "").strip(), "links": [
+            {"label": label.strip(), "url": url.strip()} for label, url in zip(labels, urls)
+            if label.strip() or url.strip()
+        ]}
+        if len(labels) != len(urls) or len(content["links"]) > 30 or len(content["intro"]) > 2000:
+            error = "Use up to 30 links and an introduction of up to 2,000 characters."
+        elif any(not link["label"] or len(link["label"]) > 120 or not validate_contact_link(link["url"]) for link in content["links"]):
+            error = "Give each link a label and a valid https://, http://, mailto:, or tel: address."
+        else:
+            marker = "%s" if using_postgres() else "?"
+            try:
+                with get_db() as db:
+                    db.execute(f"INSERT INTO site_settings (name, value) VALUES ('contact', {marker}) ON CONFLICT (name) DO UPDATE SET value = excluded.value", (json.dumps(content),))
+            except Exception:
+                app.logger.exception("Contact save failed")
+                error = "Could not save your contact links. Please try again."
+            else:
+                flash("Contact page updated.", "ok")
+                return redirect(url_for("contact"))
+    return render_template("contact_form.html", contact=content, error=error), (400 if error else 200)
+
+
 @app.route("/projects/<int:project_id>")
 def project_detail(project_id):
     project = get_project(project_id, include_drafts=is_admin())
@@ -1032,11 +1103,12 @@ def post_editor(post=None, is_project=False):
         flash(f"{content_type.capitalize()} {'created' if post is None else 'updated'}.", "ok")
         return jsonify(redirect=url_for(admin_endpoint))
     editor_segments = [
-        {**item, "image_src": post_image_src(item["image_filename"])} if item["type"] == "image" else item
+        {**item, "image_src": post_image_src(item[f"{item['type']}_filename"])} if item["type"] in {"image", "video"} else item
         for item in post_segments(post)
     ]
     return render_template("post_form.html", post=post, editor_segments=editor_segments,
-                           is_project=is_project, content_type=content_type, admin_endpoint=admin_endpoint)
+                           is_project=is_project, content_type=content_type, admin_endpoint=admin_endpoint,
+                           upload_limit_mb=app.config["MAX_CONTENT_LENGTH"] // (1024 * 1024))
 
 
 @app.route("/admin/projects/new", methods=["GET", "POST"])
@@ -1123,7 +1195,8 @@ def blob_image(pathname):
     blob = BlobClient().get(pathname, access="private")
     content = blob_result_value(blob, "content")
     content_type = blob_result_value(blob, "content_type") or "application/octet-stream"
-    return Response(content, mimetype=content_type)
+    response = Response(content, mimetype=content_type)
+    return response.make_conditional(request.environ, accept_ranges=True, complete_length=len(content))
 
 
 @app.route("/assets/<path:filename>")

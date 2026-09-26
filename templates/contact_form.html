@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Edit Contact - RAKETEX{% endblock %}
+{% macro link_fields(link) %}
+  <section class="contact-editor-row">
+    <div class="field"><label>link label<input name="link_label" type="text" maxlength="120" value="{{ link.label }}" placeholder="Email, Instagram, YouTube..." required /></label></div>
+    <div class="field"><label>link address<input name="link_url" type="text" maxlength="2048" value="{{ link.url }}" placeholder="https://... or mailto:you@example.com" required /></label></div>
+    <button class="btn" type="button" data-remove-link>remove link</button>
+  </section>
+{% endmacro %}
+{% block body %}
+  {% include "admin_tabs.html" %}
+  <section class="panel">
+    <h2>Edit Contact</h2>
+    {% if error %}<p class="form-error" role="alert">{{ error }}</p>{% endif %}
+    <form method="post">
+      <div class="field">
+        <label for="intro">introduction (optional)</label>
+        <textarea id="intro" name="intro" maxlength="2000" placeholder="How can people get in touch?">{{ contact.intro }}</textarea>
+      </div>
+      <p class="muted">Add website, social, email (mailto:), or phone (tel:) links. They appear in the order shown below.</p>
+      <div id="contact-editor-links">{% for link in contact.links %}{{ link_fields(link) }}{% endfor %}</div>
+      <button id="add-contact-link" class="btn" type="button">+ add link</button>
+      <p id="contact-editor-status" class="muted" role="status"></p>
+      <div class="row" style="margin-top: 20px;">
+        <button class="btn primary" type="submit">save contact</button>
+        <a class="btn" href="{{ url_for('contact') }}">cancel</a>
+      </div>
+    </form>
+    <template id="contact-link-template">{{ link_fields({'label': '', 'url': ''}) }}</template>
+  </section>
+  <script src="{{ url_for('asset_file', filename='contact-editor.js') }}" defer></script>
+{% endblock %}
