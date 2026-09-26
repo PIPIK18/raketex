@@ -1,14 +1,18 @@
+import base64
+import hashlib
+import hmac
 import json
 import os
 import re
 import secrets
 import sqlite3
+import time
 import uuid
 from contextlib import closing, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode, urlparse
+from urllib.parse import quote, urlencode, urlparse
 from urllib.request import Request as UrlRequest, urlopen
 
 from flask import (
@@ -25,6 +29,7 @@ from flask import (
 )
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
+from werkzeug.http import parse_range_header
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -36,6 +41,8 @@ DATABASE_URL = os.environ.get("DATABASE_URL") or os.environ.get("POSTGRES_URL")
 BLOB_READ_WRITE_TOKEN = os.environ.get("BLOB_READ_WRITE_TOKEN")
 ALLOWED_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp"}
 VIDEO_MIME_TYPES = {"mp4": "video/mp4", "webm": "video/webm", "ogv": "video/ogg"}
+MEDIA_MIME_TYPES = {**VIDEO_MIME_TYPES, "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "gif": "image/gif", "webp": "image/webp"}
+MAX_POST_UPLOAD_BYTES = 500 * 1024 * 1024
 DB_INIT_DONE = False
 PROJECT_STATES = ("ongoing", "finished", "planned")
 PRIVATE_BLOB_PREFIX = "blob-private:"
@@ -49,7 +56,7 @@ GOOGLE_USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("RAKETEX_SECRET_KEY", "dev-change-this-secret")
-app.config["MAX_CONTENT_LENGTH"] = (4 if os.environ.get("VERCEL") else 100) * 1024 * 1024
+app.config["MAX_CONTENT_LENGTH"] = 4 * 1024 * 1024 if os.environ.get("VERCEL") else MAX_POST_UPLOAD_BYTES + 1024 * 1024
 
 
 def now_iso():
@@ -235,6 +242,7 @@ def read_post_segments(post=None):
     existing_videos = {item["video_filename"] for item in post_segments(post) if item["type"] == "video"}
     segments = []
     uploads = []
+    total_upload_size = 0
     seen = set()
     # Validate every segment before uploading any files.
     for position, item in enumerate(items, 1):
@@ -256,13 +264,21 @@ def read_post_segments(post=None):
             image_ref = item.get(reference_key)
             if upload and upload.filename:
                 validate_media_filename(upload.filename, media_type)
+                upload.stream.seek(0, 2)
+                total_upload_size += upload.stream.tell()
+                upload.stream.seek(0)
                 uploads.append((len(segments), upload))
                 image_ref = None
             elif not isinstance(image_ref, str) or image_ref not in (existing_images if media_type == "image" else existing_videos):
-                raise ValueError(f"Select a {media_type} for segment {position}, or remove it.")
+                receipt = read_upload_ticket(item.get("upload_receipt"), "uploaded")
+                if receipt.get("reference") != image_ref or receipt.get("media_type") != media_type:
+                    raise ValueError(f"Select a {media_type} for segment {position}, or remove it.")
+                total_upload_size += receipt["size"]
             segments.append({"type": media_type, reference_key: image_ref})
         else:
             raise ValueError("Only image, video, and text segments are supported.")
+    if total_upload_size > MAX_POST_UPLOAD_BYTES:
+        raise ValueError("New files must total 500 MiB or less per save.")
     for index, upload in uploads:
         media_type = segments[index]["type"]
         segments[index][f"{media_type}_filename"] = save_uploaded_image(upload) if media_type == "image" else save_uploaded_media(upload, "video")
@@ -397,6 +413,73 @@ def validate_media_filename(filename, media_type):
         raise ValueError("Use png, jpg, jpeg, gif or webp images.")
     if media_type == "video" and extension not in VIDEO_MIME_TYPES:
         raise ValueError("Use MP4, WebM, or OGV videos.")
+
+
+def sign_upload_ticket(payload):
+    encoded = base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode().rstrip("=")
+    signature = hmac.new(app.config["SECRET_KEY"].encode(), encoded.encode(), hashlib.sha256).hexdigest()
+    return f"{encoded}.{signature}"
+
+
+def read_upload_ticket(ticket, scope):
+    try:
+        encoded, signature = ticket.split(".")
+        expected = hmac.new(app.config["SECRET_KEY"].encode(), encoded.encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(signature, expected):
+            raise ValueError()
+        payload = json.loads(base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)))
+        if payload["scope"] != scope or payload["exp"] < time.time() or payload["owner"] != session.get("upload_owner"):
+            raise ValueError()
+        return payload
+    except (AttributeError, TypeError, ValueError, KeyError):
+        raise ValueError("The upload authorization is invalid or expired. Select the file again and retry.") from None
+
+
+@app.route("/admin/uploads/authorize", methods=["POST"])
+def authorize_upload():
+    if not is_admin():
+        return jsonify(error="Sign in as admin before uploading."), 401
+    if not using_blob_storage():
+        return jsonify(error="Direct uploads require Blob storage."), 400
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        return jsonify(error="Invalid upload request."), 400
+    try:
+        media_type, filename, size = data.get("media_type"), data.get("filename"), data.get("size")
+        if media_type not in {"image", "video"} or not isinstance(filename, str):
+            raise ValueError("Choose an image or video file.")
+        if type(size) is not int or not 0 < size <= MAX_POST_UPLOAD_BYTES:
+            raise ValueError("Choose a file between 1 byte and 500 MiB.")
+        validate_media_filename(filename, media_type)
+        extension = filename.rsplit(".", 1)[1].lower()
+        payload = {"scope": "upload", "owner": session.setdefault("upload_owner", uuid.uuid4().hex),
+                   "pathname": f"uploads/{uuid.uuid4().hex}.{extension}", "size": size,
+                   "media_type": media_type, "content_type": MEDIA_MIME_TYPES[extension], "exp": int(time.time()) + 7200}
+        return jsonify(ticket=sign_upload_ticket(payload), pathname=payload["pathname"], content_type=payload["content_type"])
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+
+
+@app.route("/admin/uploads/complete", methods=["POST"])
+def complete_upload():
+    if not is_admin():
+        return jsonify(error="Sign in as admin before saving uploads."), 401
+    try:
+        payload = read_upload_ticket((request.get_json(silent=True) or {}).get("ticket"), "upload")
+        from vercel.blob import BlobClient
+        blob = BlobClient().head(payload["pathname"])
+        if (blob_result_value(blob, "pathname") != payload["pathname"] or blob_result_value(blob, "size") != payload["size"]
+                or blob_result_value(blob, "content_type") != payload["content_type"]):
+            raise ValueError("The uploaded file does not match the selected file. Please retry.")
+        blob_url = blob_result_value(blob, "url")
+        reference = PRIVATE_BLOB_PREFIX + payload["pathname"] if ".private.blob.vercel-storage.com" in urlparse(blob_url).netloc else blob_url
+        receipt = {**payload, "scope": "uploaded", "reference": reference, "exp": int(time.time()) + 86400}
+        return jsonify(reference=reference, receipt=sign_upload_ticket(receipt))
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    except Exception:
+        app.logger.exception("Upload verification failed")
+        return jsonify(error="Could not verify the uploaded file. Please retry saving."), 502
 
 
 def save_uploaded_media(file_storage, media_type):
@@ -828,6 +911,13 @@ def contact_content():
     return json.loads(row["value"]) if row else {"intro": "", "links": []}
 
 
+def normalize_contact_link(value):
+    value = value.strip()
+    if re.fullmatch(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,63}", value):
+        return "mailto:" + quote(value, safe="@.+-")
+    return value
+
+
 def validate_contact_link(url):
     if any(ord(char) < 32 for char in url) or len(url) > 2048:
         return False
@@ -856,14 +946,20 @@ def edit_contact():
         labels = request.form.getlist("link_label")
         urls = request.form.getlist("link_url")
         content = {"intro": request.form.get("intro", "").strip(), "links": [
-            {"label": label.strip(), "url": url.strip()} for label, url in zip(labels, urls)
+            {"label": label.strip(), "url": normalize_contact_link(url)} for label, url in zip(labels, urls)
             if label.strip() or url.strip()
         ]}
         if len(labels) != len(urls) or len(content["links"]) > 30 or len(content["intro"]) > 2000:
             error = "Use up to 30 links and an introduction of up to 2,000 characters."
-        elif any(not link["label"] or len(link["label"]) > 120 or not validate_contact_link(link["url"]) for link in content["links"]):
-            error = "Give each link a label and a valid https://, http://, mailto:, or tel: address."
         else:
+            for position, link in enumerate(content["links"], 1):
+                if not link["label"] or len(link["label"]) > 120:
+                    error = f"Link {position}: enter a display name of up to 120 characters, such as YouTube or Email."
+                    break
+                if not validate_contact_link(link["url"]):
+                    error = f"Link {position}: enter a full website URL (https://...), an email address, or a tel: phone link."
+                    break
+        if not error:
             marker = "%s" if using_postgres() else "?"
             try:
                 with get_db() as db:
@@ -1108,7 +1204,8 @@ def post_editor(post=None, is_project=False):
     ]
     return render_template("post_form.html", post=post, editor_segments=editor_segments,
                            is_project=is_project, content_type=content_type, admin_endpoint=admin_endpoint,
-                           upload_limit_mb=app.config["MAX_CONTENT_LENGTH"] // (1024 * 1024))
+                           upload_limit_mb=MAX_POST_UPLOAD_BYTES // (1024 * 1024),
+                           direct_uploads=using_blob_storage() and running_on_vercel())
 
 
 @app.route("/admin/projects/new", methods=["GET", "POST"])
@@ -1191,12 +1288,45 @@ def uploaded_file(filename):
 @app.route("/blob/<path:pathname>")
 def blob_image(pathname):
     from vercel.blob import BlobClient
+    try:
+        metadata = BlobClient().head(pathname)
+        blob_url = blob_result_value(metadata, "url")
+        parsed_url = urlparse(blob_url)
+        if parsed_url.scheme != "https" or not (parsed_url.hostname or "").endswith(".private.blob.vercel-storage.com"):
+            return render_template("404.html"), 404
+        size = blob_result_value(metadata, "size")
+        headers = {"Accept-Ranges": "bytes", "Content-Type": blob_result_value(metadata, "content_type"), "Content-Length": str(size)}
+        upstream_headers = {"Authorization": f"Bearer {BLOB_READ_WRITE_TOKEN}"}
+        status = 200
+        if request.headers.get("Range"):
+            requested = parse_range_header(request.headers["Range"])
+            bounds = requested.range_for_length(size) if requested else None
+            if bounds is None:
+                return Response(status=416, headers={"Content-Range": f"bytes */{size}"})
+            start, end = bounds
+            upstream_headers["Range"] = f"bytes={start}-{end - 1}"
+            headers.update({"Content-Range": f"bytes {start}-{end - 1}/{size}", "Content-Length": str(end - start)})
+            status = 206
+        if request.method == "HEAD":
+            return Response(status=status, headers=headers)
+        upstream = urlopen(UrlRequest(blob_url, headers=upstream_headers), timeout=30)
+        if upstream.status != status:
+            upstream.close()
+            return Response("Could not stream this file.", status=502)
 
-    blob = BlobClient().get(pathname, access="private")
-    content = blob_result_value(blob, "content")
-    content_type = blob_result_value(blob, "content_type") or "application/octet-stream"
-    response = Response(content, mimetype=content_type)
-    return response.make_conditional(request.environ, accept_ranges=True, complete_length=len(content))
+        def chunks():
+            try:
+                while chunk := upstream.read(64 * 1024):
+                    yield chunk
+            finally:
+                upstream.close()
+
+        response = Response(chunks(), status=status, headers=headers)
+        response.call_on_close(upstream.close)
+        return response
+    except Exception:
+        app.logger.exception("Private media streaming failed")
+        return Response("Could not load this file. Please try again.", status=502)
 
 
 @app.route("/assets/<path:filename>")

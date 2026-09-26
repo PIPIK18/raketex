@@ -88,6 +88,7 @@
       }
       field.append(preview);
       input.addEventListener("change", () => {
+        card.uploaded = null;
         if (card.previewUrl) URL.revokeObjectURL(card.previewUrl);
         card.previewUrl = input.files[0] ? URL.createObjectURL(input.files[0]) : "";
         const src = card.previewUrl || item.image_src;
@@ -190,6 +191,41 @@
   }
   ["pointerup", "pointercancel", "lostpointercapture"].forEach((name) => list.addEventListener(name, endDrag));
 
+  async function uploadRequest(url, payload) {
+    const response = await fetch(url, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload)});
+    if (response.redirected) throw new Error("Sign in again in another tab, then retry saving here.");
+    if (!response.headers.get("content-type")?.includes("application/json")) throw new Error("Could not reach the upload service. Please retry saving.");
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Upload failed. Please retry saving.");
+    return result;
+  }
+
+  async function uploadMedia(card, file) {
+    if (!card.uploaded || card.uploaded.file !== file) {
+      card.uploaded = {file, ...await uploadRequest("/admin/uploads/authorize", {
+        filename: file.name, size: file.size, media_type: card.dataset.type,
+      })};
+    }
+    const pending = card.uploaded;
+    if (!pending.blobDone) {
+      const {upload} = await import("/assets/blob-client.js");
+      const options = {
+        handleUploadUrl: "/api/blob-upload", clientPayload: pending.ticket,
+        multipart: true, contentType: pending.content_type,
+        onUploadProgress: ({percentage}) => announce(`Uploading ${file.name}: ${Math.round(percentage)}%`),
+      };
+      try {
+        await upload(pending.pathname, file, {...options, access: "public"});
+      } catch (failure) {
+        if (!/private store|store is private/i.test(failure.message || "")) throw failure;
+        await upload(pending.pathname, file, {...options, access: "private"});
+      }
+      pending.blobDone = true;
+    }
+    if (!pending.receipt) Object.assign(pending, await uploadRequest("/admin/uploads/complete", {ticket: pending.ticket}));
+    return pending;
+  }
+
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     if (fields.disabled) return;
@@ -204,16 +240,32 @@
       return;
     }
     const data = new FormData(form);
-    data.set("segments", JSON.stringify(segments));
-    const uploadBytes = Array.from(data.values()).reduce((total, value) => total + (value instanceof File ? value.size : new Blob([value]).size), 0);
+    const uploadBytes = Array.from(data.values()).reduce((total, value) => total + (value instanceof File ? value.size : 0), 0);
     const limit = Number(form.dataset.uploadLimit) * 1024 * 1024;
-    if (uploadBytes + 65536 > limit) {
+    if (uploadBytes > limit) {
       showError(`The selected files exceed the ${form.dataset.uploadLimit} MiB upload limit. Use smaller files and try again.`);
       return;
     }
     fields.disabled = true;
     announce(`Saving ${contentType}...`);
     try {
+      if (form.dataset.directUploads === "true") {
+        const items = cards();
+        for (let index = 0; index < items.length; index++) {
+          const card = items[index];
+          const input = card.querySelector("input[type='file']");
+          if (!input) continue;
+          const file = input.files[0];
+          if (file) {
+            const uploaded = await uploadMedia(card, file);
+            segments[index][`${card.dataset.type}_filename`] = uploaded.reference;
+            segments[index].upload_receipt = uploaded.receipt;
+          }
+          data.delete(input.name);
+        }
+      }
+      data.set("segments", JSON.stringify(segments));
+      announce(`Saving ${contentType}...`);
       const response = await fetch(form.action, {method: "POST", body: data, headers: {Accept: "application/json"}});
       if (response.redirected) throw new Error(`Your session has expired. Sign in again in another tab, then save your ${contentType} here.`);
       if (response.status === 413) throw new Error("The selected files are too large to save together. Use smaller files and try again.");

@@ -36,14 +36,28 @@ Existing posts open as an image segment followed by a text segment. The app adds
 the `posts.segments` column automatically on startup for SQLite and Postgres;
 existing content is retained. The first image becomes the list thumbnail, and
 all text segments contribute to search and excerpts. Posts may contain only
-images, videos, or text, with up to 100 segments. Local uploads allow up to
-100 MiB per save. On Vercel the app uses a 4 MiB combined request limit to stay
-below the platform's [4.5 MB function payload limit](https://vercel.com/docs/functions/limitations).
-This server-upload flow supports short/compressed videos on Vercel; larger hosted
-uploads would require a direct-to-storage upload flow. The editor shows the limit
-and checks the combined size before submitting. Existing saved media is reused
+images, videos, or text, with up to 100 segments. New files can total **500 MiB
+per save**, locally and on Vercel. On Vercel the browser uploads media directly
+to Blob storage using its [client upload flow](https://vercel.com/docs/vercel-blob/client-upload),
+so file contents do not pass through the function's small request limit.
+Only the post text and verified file references go to Flask. Upload progress is
+shown in the editor; retrying a failed save reuses completed uploads.
+The editor checks the combined size before submitting. Existing saved media is reused
 when reordering or editing a post, so it does not need to be uploaded again.
 Failed saves keep the editor content and file selections available for retry.
+
+Large uploads use the existing `BLOB_READ_WRITE_TOKEN` and `RAKETEX_SECRET_KEY`
+environment variables. Both must be configured on Vercel. `vercel.json` routes
+`/api/blob-upload` to the small Node function which issues restricted upload
+tokens after verifying Flask's signed administrator authorization. Deploy the
+updated configuration, `api/` files, package manifests, and browser assets together.
+Public stores serve files directly; private files stream through Flask with
+byte-range support, without buffering the whole video in memory. Blob storage
+and transfer usage still count toward the connected storage plan.
+
+The browser SDK bundle is checked in at `assets/blob-client.js`; rebuild it after
+changing the pinned JavaScript dependency using `npm ci` and `npm run build:uploads`.
+Run the upload authorization tests with `npm run test:uploads`.
 
 Run the isolated backend regression tests with:
 
@@ -86,7 +100,9 @@ category links, deletion, and responsive layouts.
 
 **Contact** is available in the main navigation. Use **Admin → Edit contact**
 to add an optional introduction and up to 30 labeled links, or edit/remove links.
-Supported addresses start with `https://`, `http://`, `mailto:`, or `tel:`.
+Use a display name such as `YouTube` or `Email`, then enter the destination in
+the address field. Plain email addresses automatically become clickable email
+links. Full `https://`, `http://`, `mailto:`, and `tel:` addresses also work.
 Changes are saved to the database and appear on the public Contact page.
 
 The header places uppercase text navigation on either side of the centered

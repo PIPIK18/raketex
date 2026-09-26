@@ -2,8 +2,8 @@
 {% block title %}Edit Contact - RAKETEX{% endblock %}
 {% macro link_fields(link) %}
   <section class="contact-editor-row">
-    <div class="field"><label>link label<input name="link_label" type="text" maxlength="120" value="{{ link.label }}" placeholder="Email, Instagram, YouTube..." required /></label></div>
-    <div class="field"><label>link address<input name="link_url" type="text" maxlength="2048" value="{{ link.url }}" placeholder="https://... or mailto:you@example.com" required /></label></div>
+    <div class="field"><label>display name<input name="link_label" type="text" maxlength="120" value="{{ link.label }}" placeholder="YouTube, Email, Instagram..." required /></label></div>
+    <div class="field"><label>website or email address<input name="link_url" type="text" maxlength="2048" value="{{ link.url }}" placeholder="https://youtube.com/@yourchannel or you@example.com" required /></label></div>
     <button class="btn" type="button" data-remove-link>remove link</button>
   </section>
 {% endmacro %}
@@ -17,7 +17,7 @@
         <label for="intro">introduction (optional)</label>
         <textarea id="intro" name="intro" maxlength="2000" placeholder="How can people get in touch?">{{ contact.intro }}</textarea>
       </div>
-      <p class="muted">Add website, social, email (mailto:), or phone (tel:) links. They appear in the order shown below.</p>
+      <p class="muted">The display name is the text visitors see, such as YouTube or Email. In the address field, paste the full website URL or type your email address directly. Phone links can use tel:. Links appear in the order shown below.</p>
       <div id="contact-editor-links">{% for link in contact.links %}{{ link_fields(link) }}{% endfor %}</div>
       <button id="add-contact-link" class="btn" type="button">+ add link</button>
       <p id="contact-editor-status" class="muted" role="status"></p>

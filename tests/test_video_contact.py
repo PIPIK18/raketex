@@ -1,7 +1,7 @@
 import io
 import json
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 from werkzeug.datastructures import MultiDict
 
@@ -49,10 +49,15 @@ class VideoAndContactTest(unittest.TestCase):
             blob.return_value.put.return_value = {"url": "https://media.example/launch.mp4"}
             self.assertEqual(self.submit([{"id": "v", "type": "video"}], video_v=(io.BytesIO(b"video"), "launch.mp4")).status_code, 200)
             self.assertEqual(blob.return_value.put.call_args.kwargs["content_type"], "video/mp4")
-            blob.return_value.get.return_value = {"content": b"0123456789", "content_type": "video/mp4"}
-            result = self.client.get("/blob/uploads/launch.mp4", headers={"Range": "bytes=3-6"})
-            self.assertEqual(result.status_code, 206)
-            self.assertEqual(result.data, b"3456")
+            blob.return_value.head.return_value = {"size": 10, "content_type": "video/mp4", "url": "https://test.private.blob.vercel-storage.com/uploads/launch.mp4"}
+            stream = MagicMock(status=206)
+            stream.read.side_effect = [b"3456", b""]
+            with patch.object(site, "urlopen", return_value=stream) as opened:
+                result = self.client.get("/blob/uploads/launch.mp4", headers={"Range": "bytes=3-6"})
+                self.assertEqual(result.status_code, 206)
+                self.assertEqual(result.data, b"3456")
+                self.assertEqual(opened.call_args.args[0].get_header("Range"), "bytes=3-6")
+                stream.close.assert_called()
 
     def test_contact_save_edit_remove_and_public_view(self):
         data = MultiDict([("intro", "Get in touch"), ("link_label", "Website"), ("link_url", "https://example.com"),
@@ -80,6 +85,32 @@ class VideoAndContactTest(unittest.TestCase):
             self.assertEqual(site.contact_content()["links"], [])
         self.assertTrue(site.validate_contact_link("tel:+420123456789"))
         self.assertTrue(site.validate_contact_link("https://example.com/contact?q=hello"))
+
+    def test_contact_accepts_plain_email_alongside_youtube(self):
+        data = MultiDict([
+            ("link_label", "https://www.youtube.com/"),
+            ("link_url", "https://www.youtube.com/@example-channel"),
+            ("link_label", "https://mail.google.com/"),
+            ("link_url", "  creator+contact@example.com  "),
+        ])
+        response = self.client.post("/admin/contact", data=data)
+        self.assertEqual(response.status_code, 302)
+        links = site.contact_content()["links"]
+        self.assertEqual(links[0]["url"], "https://www.youtube.com/@example-channel")
+        self.assertEqual(links[1]["url"], "mailto:creator+contact@example.com")
+        self.assertIn('href="mailto:creator+contact@example.com"', self.client.get("/contact").text)
+        self.assertEqual(site.normalize_contact_link(links[1]["url"]), links[1]["url"])
+
+    def test_contact_error_identifies_invalid_row(self):
+        response = self.client.post("/admin/contact", data=MultiDict([
+            ("link_label", "YouTube"), ("link_url", "https://youtube.com/@example"),
+            ("link_label", "Email"), ("link_url", "not-an-address"),
+        ]))
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Link 2:", response.text)
+        self.assertIn("https://youtube.com/@example", response.text)
+        self.assertIn("not-an-address", response.text)
+        self.assertEqual(site.contact_content()["links"], [])
 
 
 if __name__ == "__main__":

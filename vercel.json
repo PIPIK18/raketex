@@ -2,11 +2,19 @@
   "version": 2,
   "builds": [
     {
+      "src": "api/blob-upload.mjs",
+      "use": "@vercel/node"
+    },
+    {
       "src": "app.py",
       "use": "@vercel/python"
     }
   ],
   "routes": [
+    {
+      "src": "/api/blob-upload",
+      "dest": "/api/blob-upload.mjs"
+    },
     {
       "src": "/(.*)",
       "dest": "app.py"

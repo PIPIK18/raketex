@@ -4,7 +4,7 @@
   <link rel="stylesheet" href="{{ url_for('asset_file', filename='post-editor.css') }}" />
   <section class="panel">
     <h2>{{ "Edit" if post else "New" }} {{ content_type|capitalize }}</h2>
-    <form id="post-editor" data-content-type="{{ content_type }}" data-upload-limit="{{ upload_limit_mb }}" method="post" enctype="multipart/form-data">
+    <form id="post-editor" data-content-type="{{ content_type }}" data-upload-limit="{{ upload_limit_mb }}" data-direct-uploads="{{ 'true' if direct_uploads else 'false' }}" method="post" enctype="multipart/form-data">
       <fieldset id="editor-fields">
         <div class="field">
           <label for="title">{{ 'project name' if is_project else 'title' }}</label>

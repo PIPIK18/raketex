@@ -149,6 +149,55 @@ def check_video_contact_navigation(page, origin):
     print("PASS: real video upload, playback and reopen; Contact editing; centered text navigation, mobile layout, reduced motion")
 
 
+def check_large_direct_upload(page, origin):
+    size = 6 * 1024 * 1024
+    uploads = []
+    saves = []
+    module = """
+      export async function upload(path, file, options) {
+        options.onUploadProgress({percentage: 50});
+        const response = await fetch('/test-blob-upload', {method: 'PUT', body: file});
+        if (!response.ok) throw new Error('Upload failed');
+        return {pathname: path};
+      }
+    """
+    page.route("**/assets/blob-client.js", lambda route: route.fulfill(content_type="text/javascript", body=module))
+
+    def blob_upload(route):
+        uploads.append(len(route.request.post_data_buffer))
+        route.fulfill(status=200, body="ok")
+
+    def save_post(route):
+        saves.append(len(route.request.post_data_buffer))
+        if len(saves) == 1:
+            route.fulfill(status=500, content_type="application/json", body='{"error":"Temporary save failure"}')
+        else:
+            route.continue_()
+
+    page.route("**/test-blob-upload", blob_upload)
+    page.goto(origin + "/admin/posts/new")
+    page.locator("#post-editor").evaluate("form => form.dataset.directUploads = 'true'")
+    page.locator("#title").fill("Large direct upload")
+    page.locator("[data-add='video']").click()
+    page.locator("input[type='file']").set_input_files({"name": "large.mp4", "mimeType": "video/mp4", "buffer": b"x" * size})
+    page.route("**/admin/posts/new", save_post)
+    with patch.object(site, "BLOB_READ_WRITE_TOKEN", "test"), patch("vercel.blob.BlobClient") as client:
+        client.return_value.head.side_effect = lambda path: {"pathname": path, "size": size, "content_type": "video/mp4", "url": "https://test.public.blob.vercel-storage.com/" + path}
+        page.locator("#save-post").click()
+        page.locator("#editor-error").wait_for(state="visible")
+        assert "Temporary save failure" in page.locator("#editor-error").inner_text()
+        assert page.locator("input[type='file']").evaluate("input => input.files[0].size") == size
+        page.locator("#save-post").click()
+        page.wait_for_url(origin + "/admin")
+    assert uploads == [size], uploads
+    assert len(saves) == 2 and all(length < 10000 for length in saves), saves
+    assert any(post["title"] == "Large direct upload" for post in site.list_admin_posts())
+    page.unroute("**/assets/blob-client.js")
+    page.unroute("**/test-blob-upload")
+    page.unroute("**/admin/posts/new")
+    print("PASS: 6 MiB direct upload with mocked storage, small Flask save requests, and retry without reupload")
+
+
 def main():
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
@@ -240,6 +289,7 @@ def main():
                     assert page.locator(".post-body").all_text_contents() == ["Opening text", "Closing text"]
                     check_projects(page, origin)
                     check_video_contact_navigation(page, origin)
+                    check_large_direct_upload(page, origin)
                     assert not errors, errors
                     browser.close()
                     print("PASS: desktop drag, mobile touch drag, keyboard reorder, previews, failed-save recovery, persistence, removal, and public rendering")
