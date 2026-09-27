@@ -5,9 +5,11 @@
   const fields = document.getElementById("editor-fields");
   const error = document.getElementById("editor-error");
   const status = document.getElementById("editor-status");
+  const cancelUpload = document.getElementById("cancel-upload");
   let nextId = 0;
   let drag = null;
   let scrollFrame = null;
+  let saveAbort = null;
 
   const cards = () => Array.from(list.children);
   const announce = (message) => { status.textContent = message; };
@@ -191,8 +193,25 @@
   }
   ["pointerup", "pointercancel", "lostpointercapture"].forEach((name) => list.addEventListener(name, endDrag));
 
-  async function uploadRequest(url, payload) {
-    const response = await fetch(url, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload)});
+  async function uploadRequest(url, payload, signal) {
+    const requestAbort = new AbortController();
+    const stopRequest = () => requestAbort.abort();
+    const timeout = setTimeout(stopRequest, 30 * 1000);
+    signal.addEventListener("abort", stopRequest, {once: true});
+    let response;
+    try {
+      response = await fetch(url, {
+        method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload), signal: requestAbort.signal,
+      });
+    } catch (failure) {
+      if (requestAbort.signal.aborted && !signal.aborted) {
+        throw new Error("The upload service did not respond within 30 seconds. Please try again.");
+      }
+      throw failure;
+    } finally {
+      clearTimeout(timeout);
+      signal.removeEventListener("abort", stopRequest);
+    }
     if (response.redirected) throw new Error("Sign in again in another tab, then retry saving here.");
     if (!response.headers.get("content-type")?.includes("application/json")) throw new Error("Could not reach the upload service. Please retry saving.");
     const result = await response.json();
@@ -200,11 +219,12 @@
     return result;
   }
 
-  async function uploadMedia(card, file) {
+  async function uploadMedia(card, file, signal) {
     if (!card.uploaded || card.uploaded.file !== file) {
+      announce(`Preparing ${file.name}...`);
       card.uploaded = {file, ...await uploadRequest("/admin/uploads/authorize", {
         filename: file.name, size: file.size, media_type: card.dataset.type,
-      })};
+      }, signal)};
     }
     const pending = card.uploaded;
     if (!pending.blobDone) {
@@ -212,6 +232,7 @@
       const options = {
         handleUploadUrl: "/api/blob-upload", clientPayload: pending.ticket,
         multipart: true, contentType: pending.content_type,
+        abortSignal: signal,
         onUploadProgress: ({percentage}) => announce(`Uploading ${file.name}: ${Math.round(percentage)}%`),
       };
       try {
@@ -222,7 +243,10 @@
       }
       pending.blobDone = true;
     }
-    if (!pending.receipt) Object.assign(pending, await uploadRequest("/admin/uploads/complete", {ticket: pending.ticket}));
+    if (!pending.receipt) {
+      announce(`Verifying ${file.name}...`);
+      Object.assign(pending, await uploadRequest("/admin/uploads/complete", {ticket: pending.ticket}, signal));
+    }
     return pending;
   }
 
@@ -247,17 +271,23 @@
       return;
     }
     fields.disabled = true;
-    announce(`Saving ${contentType}...`);
+    cancelUpload.hidden = false;
+    saveAbort = new AbortController();
+    const deadline = setTimeout(() => saveAbort?.abort("Upload timed out"), 5 * 60 * 1000);
     try {
       if (form.dataset.directUploads === "true") {
         const items = cards();
+        const uploadCount = items.filter(card => card.querySelector("input[type='file']")?.files[0]).length;
+        let uploadNumber = 0;
         for (let index = 0; index < items.length; index++) {
           const card = items[index];
           const input = card.querySelector("input[type='file']");
           if (!input) continue;
           const file = input.files[0];
           if (file) {
-            const uploaded = await uploadMedia(card, file);
+            uploadNumber++;
+            announce(`Upload ${uploadNumber} of ${uploadCount}: ${file.name}`);
+            const uploaded = await uploadMedia(card, file, saveAbort.signal);
             segments[index][`${card.dataset.type}_filename`] = uploaded.reference;
             segments[index].upload_receipt = uploaded.receipt;
           }
@@ -266,7 +296,7 @@
       }
       data.set("segments", JSON.stringify(segments));
       announce(`Saving ${contentType}...`);
-      const response = await fetch(form.action, {method: "POST", body: data, headers: {Accept: "application/json"}});
+      const response = await fetch(form.action, {method: "POST", body: data, headers: {Accept: "application/json"}, signal: saveAbort.signal});
       if (response.redirected) throw new Error(`Your session has expired. Sign in again in another tab, then save your ${contentType} here.`);
       if (response.status === 413) throw new Error("The selected files are too large to save together. Use smaller files and try again.");
       if (!response.headers.get("content-type")?.includes("application/json")) throw new Error(`Could not save your ${contentType}. Please try again; your segments are still here.`);
@@ -274,11 +304,17 @@
       if (!response.ok) throw new Error(result.error || `Could not save your ${contentType}. Please try again.`);
       window.location.assign(result.redirect);
     } catch (failure) {
-      showError(failure.message || `Could not save your ${contentType}. Please try again.`);
+      showError(saveAbort.signal.aborted ? "Upload stopped. Your text and selected files are still here; save again to retry." : (failure.message || `Could not save your ${contentType}. Please try again.`));
       announce("");
       fields.disabled = false;
+    } finally {
+      clearTimeout(deadline);
+      saveAbort = null;
+      cancelUpload.hidden = true;
     }
   });
+
+  cancelUpload.addEventListener("click", () => saveAbort?.abort("Stopped by admin"));
 
   JSON.parse(document.getElementById("initial-segments").textContent).forEach((item) => addSegment(item));
   refresh();

@@ -22,7 +22,9 @@ export default async function handler(request, response) {
       },
     });
     return response.status(200).json(result);
-  } catch {
+  } catch (error) {
+    // Keep the browser response generic, but make failed Vercel requests diagnosable.
+    console.error('Blob upload authorization failed:', error?.message || error);
     return response.status(400).json({ error: 'Could not authorize this upload. Sign in again and retry.' });
   }
 }

@@ -44,6 +44,9 @@
           <a class="btn" href="{{ url_for(admin_endpoint) }}">cancel</a>
         </div>
       </fieldset>
+      <div class="row">
+        <button id="cancel-upload" class="btn" type="button" hidden>stop upload</button>
+      </div>
       <p id="editor-error" role="alert" hidden></p>
       <p id="editor-status" class="muted" role="status" aria-live="polite"></p>
       <noscript>Enable JavaScript to add, rearrange, and save segments.</noscript>
