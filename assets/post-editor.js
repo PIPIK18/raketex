@@ -250,6 +250,15 @@
     return pending;
   }
 
+  function uploadErrorMessage(failure) {
+    if (failure?.name === "AbortError") return "Upload stopped. Your text and selected files are still here; save again to retry.";
+    const message = failure?.message || "";
+    if (/network request failed|failed to fetch|networkerror|fetch failed/i.test(message)) {
+      return "The connection to Blob storage was interrupted. Check your connection and save again; completed files will not be sent again.";
+    }
+    return message || `Could not save your ${contentType}. Please try again.`;
+  }
+
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     if (fields.disabled) return;
@@ -273,7 +282,6 @@
     fields.disabled = true;
     cancelUpload.hidden = false;
     saveAbort = new AbortController();
-    const deadline = setTimeout(() => saveAbort?.abort("Upload timed out"), 5 * 60 * 1000);
     try {
       if (form.dataset.directUploads === "true") {
         const items = cards();
@@ -304,11 +312,10 @@
       if (!response.ok) throw new Error(result.error || `Could not save your ${contentType}. Please try again.`);
       window.location.assign(result.redirect);
     } catch (failure) {
-      showError(saveAbort.signal.aborted ? "Upload stopped. Your text and selected files are still here; save again to retry." : (failure.message || `Could not save your ${contentType}. Please try again.`));
+      showError(uploadErrorMessage(failure));
       announce("");
       fields.disabled = false;
     } finally {
-      clearTimeout(deadline);
       saveAbort = null;
       cancelUpload.hidden = true;
     }
