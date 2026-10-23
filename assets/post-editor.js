@@ -221,17 +221,20 @@
 
   async function uploadMedia(card, file, signal) {
     if (!card.uploaded || card.uploaded.file !== file) {
-      announce(`Preparing ${file.name}...`);
+      announce(`Authorizing ${file.name}...`);
       card.uploaded = {file, ...await uploadRequest("/admin/uploads/authorize", {
         filename: file.name, size: file.size, media_type: card.dataset.type,
       }, signal)};
     }
     const pending = card.uploaded;
     if (!pending.blobDone) {
+      announce(`Starting upload for ${file.name}...`);
       const {upload} = await import("/assets/blob-client.js");
       const options = {
         handleUploadUrl: "/api/blob-upload", clientPayload: pending.ticket,
-        multipart: true, contentType: pending.content_type,
+        // Multipart uploads add several setup requests. Use them only where
+        // they improve reliability for genuinely large media files.
+        multipart: file.size >= 100 * 1024 * 1024, contentType: pending.content_type,
         abortSignal: signal,
         onUploadProgress: ({percentage}) => announce(`Uploading ${file.name}: ${Math.round(percentage)}%`),
       };
