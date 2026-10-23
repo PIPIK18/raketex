@@ -238,12 +238,7 @@
         abortSignal: signal,
         onUploadProgress: ({percentage}) => announce(`Uploading ${file.name}: ${Math.round(percentage)}%`),
       };
-      try {
-        await upload(pending.pathname, file, {...options, access: "public"});
-      } catch (failure) {
-        if (!/private store|store is private/i.test(failure.message || "")) throw failure;
-        await upload(pending.pathname, file, {...options, access: "private"});
-      }
+      await upload(pending.pathname, file, {...options, access: "private"});
       pending.blobDone = true;
     }
     if (!pending.receipt) {
