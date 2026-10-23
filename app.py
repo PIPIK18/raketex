@@ -369,7 +369,7 @@ def image_is_allowed(filename):
 
 
 def using_blob_storage():
-    return bool(BLOB_READ_WRITE_TOKEN)
+    return bool(BLOB_READ_WRITE_TOKEN or os.environ.get("BLOB_STORE_ID"))
 
 
 def is_remote_image(image_ref):
@@ -466,8 +466,12 @@ def complete_upload():
         return jsonify(error="Sign in as admin before saving uploads."), 401
     try:
         payload = read_upload_ticket((request.get_json(silent=True) or {}).get("ticket"), "upload")
-        from vercel.blob import BlobClient
-        blob = BlobClient().head(payload["pathname"])
+        # Pass Vercel's request headers to the SDK so it can use the
+        # deployment's auto-rotating OIDC credential instead of a static token.
+        from vercel.blob.sync import head_blob
+        from vercel.headers import set_headers
+        set_headers(dict(request.headers))
+        blob = head_blob(payload["pathname"])
         if (blob_result_value(blob, "pathname") != payload["pathname"] or blob_result_value(blob, "size") != payload["size"]
                 or blob_result_value(blob, "content_type") != payload["content_type"]):
             raise ValueError("The uploaded file does not match the selected file. Please retry.")

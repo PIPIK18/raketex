@@ -181,8 +181,8 @@ def check_large_direct_upload(page, origin):
     page.locator("[data-add='video']").click()
     page.locator("input[type='file']").set_input_files({"name": "large.mp4", "mimeType": "video/mp4", "buffer": b"x" * size})
     page.route("**/admin/posts/new", save_post)
-    with patch.object(site, "BLOB_READ_WRITE_TOKEN", "test"), patch("vercel.blob.BlobClient") as client:
-        client.return_value.head.side_effect = lambda path: {"pathname": path, "size": size, "content_type": "video/mp4", "url": "https://test.public.blob.vercel-storage.com/" + path}
+    with patch.object(site, "BLOB_READ_WRITE_TOKEN", "test"), patch("vercel.blob.sync.head_blob") as head_blob:
+        head_blob.side_effect = lambda path: {"pathname": path, "size": size, "content_type": "video/mp4", "url": "https://test.public.blob.vercel-storage.com/" + path}
         page.locator("#save-post").click()
         page.locator("#editor-error").wait_for(state="visible")
         assert "Temporary save failure" in page.locator("#editor-error").inner_text()

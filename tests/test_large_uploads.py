@@ -30,8 +30,7 @@ class LargeUploadTest(unittest.TestCase):
         self.assertEqual(authorized.status_code, 200)
         ticket = authorized.json
         reference = "https://test.public.blob.vercel-storage.com/" + ticket["pathname"]
-        with patch("vercel.blob.BlobClient") as client:
-            client.return_value.head.return_value = {"pathname": ticket["pathname"], "size": 6 * 1024 * 1024, "content_type": "video/mp4", "url": reference}
+        with patch("vercel.blob.sync.head_blob", return_value={"pathname": ticket["pathname"], "size": 6 * 1024 * 1024, "content_type": "video/mp4", "url": reference}):
             confirmed = self.client.post("/admin/uploads/complete", json={"ticket": ticket["ticket"]})
         self.assertEqual(confirmed.status_code, 200)
         segment = {"id": "v", "type": "video", "video_filename": confirmed.json["reference"], "upload_receipt": confirmed.json["receipt"]}
@@ -70,8 +69,7 @@ class LargeUploadTest(unittest.TestCase):
 
     def test_confirm_rejects_wrong_uploaded_size(self):
         ticket = self.authorize().json
-        with patch("vercel.blob.BlobClient") as client:
-            client.return_value.head.return_value = {"pathname": ticket["pathname"], "size": 1, "content_type": "video/mp4"}
+        with patch("vercel.blob.sync.head_blob", return_value={"pathname": ticket["pathname"], "size": 1, "content_type": "video/mp4"}):
             response = self.client.post("/admin/uploads/complete", json={"ticket": ticket["ticket"]})
         self.assertEqual(response.status_code, 400)
 
